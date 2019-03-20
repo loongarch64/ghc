@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE BangPatterns, MagicHash, UnboxedTuples #-}
+{-# LANGUAGE BangPatterns, MagicHash, UnboxedTuples, MultiWayIf #-}
 {-# OPTIONS_GHC -O2 -fno-warn-name-shadowing #-}
 -- We always optimise this, otherwise performance of a non-optimised
 -- compiler is severely affected. This module used to live in the `ghc`
@@ -21,10 +21,13 @@ module GHC.Utils.Encoding (
         utf8PrevChar,
         utf8CharStart,
         utf8DecodeChar,
+        utf8CharSizeAt,
+        utf8CharSizeAt#,
         utf8DecodeByteString,
         utf8UnconsByteString,
         utf8DecodeShortByteString,
         utf8CompareShortByteString,
+        utf8SplitAtByteString,
         utf8DecodeStringLazy,
         utf8EncodeChar,
         utf8EncodeString,
@@ -32,6 +35,7 @@ module GHC.Utils.Encoding (
         utf8EncodeShortByteString,
         utf8EncodedLength,
         countUTF8Chars,
+        countUTF8CharsBS,
 
         -- * Z-encoding
         zEncodeString,
@@ -53,6 +57,7 @@ import GHC.IO
 import GHC.ST
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BS
 import Data.ByteString.Short.Internal (ShortByteString(..))
 
@@ -138,6 +143,29 @@ utf8DecodeChar :: Ptr Word8 -> (Char, Int)
 utf8DecodeChar !(Ptr a#) =
   case utf8DecodeCharAddr# a# 0# of
     (# c#, nBytes# #) -> ( C# c#, I# nBytes# )
+
+-- | Returns the size of UTF8-encoded character at the given 'Addr#'.
+--
+-- The validity of the encoding is not checked.
+{-# INLINE utf8CharSizeAt# #-}
+utf8CharSizeAt# :: Addr# -> Int#
+utf8CharSizeAt# a# =
+#if !MIN_VERSION_base(4,16,0)
+  let !byte = indexWord8OffAddr# a# 0# in
+#else
+  let !byte = word8ToWord# (indexWord8OffAddr# a# 0#) in
+#endif
+  if | isTrue# (byte `leWord#` 0x7F##) -> 1#
+     | isTrue# (byte `leWord#` 0xDF##) -> 2#
+     | isTrue# (byte `leWord#` 0xEF##) -> 3#
+     | otherwise                       -> 4#
+
+-- | Returns the size of UTF8-encoded character beginning at the given
+-- @'Ptr' 'Word8'@.
+--
+-- The validity of the encoding is not checked.
+utf8CharSizeAt :: Ptr Word8 -> Int
+utf8CharSizeAt (Ptr a#) = I# (utf8CharSizeAt# a#)
 
 -- UTF-8 is cleverly designed so that we can always figure out where
 -- the start of the current character is, given any position in a
@@ -233,6 +261,26 @@ utf8CompareShortByteString (SBS a1) (SBS a2) = go 0# 0#
                          | isTrue# (b1_1 `ltWord#` b2_1) -> LT
                          | otherwise                     -> go (off1 +# 1#) (off2 +# 1#)
 
+-- | Split after a given number of characters.
+--
+-- Negative values are treated as if they are 0.
+utf8SplitAtByteString :: Int -> ByteString -> (ByteString, ByteString)
+utf8SplitAtByteString n0 bs@(BS.PS fptr off0 len)
+  | n0 <= 0   = (BS.empty, bs)
+  | otherwise =
+      case go n0 start of
+        ptr | ptr >= end -> (bs, BS.empty)
+            | otherwise  ->
+                let d = ptr `minusPtr` start
+                in (BS.PS fptr off0 d, BS.PS fptr (off0 + d) (len - d))
+  where
+    !start = unsafeForeignPtrToPtr fptr `plusPtr` off0
+    !end = start `plusPtr` len
+
+    go n ptr
+      | n > 0 && ptr < end = go (pred n) (ptr `plusPtr` utf8CharSizeAt ptr)
+      | otherwise          = ptr
+
 utf8DecodeShortByteString :: ShortByteString -> [Char]
 utf8DecodeShortByteString (SBS ba#)
   = unsafeDupablePerformIO $
@@ -248,6 +296,16 @@ countUTF8Chars (SBS ba) = go 0# 0#
           return (I# n#)
       | otherwise = do
           case utf8DecodeCharByteArray# ba i# of
+            (# _, nBytes# #) -> go (i# +# nBytes#) (n# +# 1#)
+
+countUTF8CharsBS :: Ptr Word8 -> Int -> IO Int
+countUTF8CharsBS (Ptr a#) (I# len#) = go 0# 0#
+  where
+    go i# n#
+      | isTrue# (i# >=# len#) =
+          return (I# n#)
+      | otherwise = do
+          case utf8DecodeCharAddr# a# i# of
             (# _, nBytes# #) -> go (i# +# nBytes#) (n# +# 1#)
 
 {-# INLINE utf8EncodeChar #-}
@@ -329,11 +387,17 @@ utf8EncodeShortByteString str = IO $ \s ->
 utf8EncodedLength :: String -> Int
 utf8EncodedLength str = go 0 str
   where go !n [] = n
-        go n (c:cs)
-          | ord c > 0 && ord c <= 0x007f = go (n+1) cs
-          | ord c <= 0x07ff = go (n+2) cs
-          | ord c <= 0xffff = go (n+3) cs
-          | otherwise       = go (n+4) cs
+        go n (c:cs) = go (n + utf8EncodedCharLength c) cs
+
+-- TODO: What's the rationale for returning 4 for '\NUL'?
+utf8EncodedCharLength :: Char -> Int
+utf8EncodedCharLength c
+  | n > 0 && n <= 0x007f = 1
+  | n <= 0x07ff          = 2
+  | n <= 0xffff          = 3
+  | otherwise            = 4
+  where n = ord c
+{-# INLINE utf8EncodedCharLength #-}
 
 -- -----------------------------------------------------------------------------
 -- Note [Z-Encoding]

@@ -498,6 +498,7 @@ Library
         GHC.Parser.Errors.Types
         GHC.Parser.Header
         GHC.Parser.Lexer
+        GHC.Parser.HaddockLex
         GHC.Parser.PostProcess
         GHC.Parser.PostProcess.Haddock
         GHC.Parser.Types
@@ -521,6 +522,7 @@ Library
         GHC.Plugins
         GHC.Prelude
         GHC.Rename.Bind
+        GHC.Rename.Doc
         GHC.Rename.Env
         GHC.Rename.Expr
         GHC.Rename.Fixity

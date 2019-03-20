@@ -70,9 +70,11 @@ import Data.Coerce
 import qualified Data.Monoid
 
 import GHC.Parser.Lexer
+import {-# SOURCE #-} GHC.Parser (lexHsDoc')
 import GHC.Parser.Errors.Types
 import GHC.Utils.Misc (mergeListsBy, filterOut, mapLastM, (<&&>))
 import qualified GHC.Data.Strict as Strict
+import GHC.Types.Name.Reader (RdrName)
 
 {- Note [Adding Haddock comments to the syntax tree]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -254,7 +256,8 @@ instance HasHaddock (Located HsModule) where
         docs <-
           inLocRange (locRangeTo (getBufPos (srcSpanStart l_name))) $
           takeHdkComments mkDocNext
-        selectDocString docs
+        dc <- selectDocString docs
+        pure $ lexLHsDocString <$> dc
 
     -- Step 2, process documentation comments in the export list:
     --
@@ -293,6 +296,12 @@ instance HasHaddock (Located HsModule) where
       mod { hsmodExports = hsmodExports'
           , hsmodDecls = hsmodDecls'
           , hsmodHaddockModHeader = join @Maybe headerDocs }
+
+lexLHsDocString :: LHsDocString -> LHsDoc RdrName
+lexLHsDocString = fmap lexHsDocString
+
+lexHsDocString :: HsDocString -> HsDoc RdrName
+lexHsDocString = lexHsDoc' . unpackHDS
 
 -- Only for module exports, not module imports.
 --
@@ -702,7 +711,7 @@ instance HasHaddock (LocatedA (ConDecl GhcPs)) where
         con_res_ty' <- addHaddock con_res_ty
         pure $ L l_con_decl $
           ConDeclGADT { con_g_ext, con_names, con_bndrs, con_mb_cxt,
-                        con_doc = con_doc',
+                        con_doc = lexLHsDocString <$> con_doc',
                         con_g_args = con_g_args',
                         con_res_ty = con_res_ty' }
       ConDeclH98 { con_ext, con_name, con_forall, con_ex_tvs, con_mb_cxt, con_args } ->
@@ -713,7 +722,7 @@ instance HasHaddock (LocatedA (ConDecl GhcPs)) where
             ts' <- traverse addHaddockConDeclFieldTy ts
             pure $ L l_con_decl $
               ConDeclH98 { con_ext, con_name, con_forall, con_ex_tvs, con_mb_cxt,
-                           con_doc = con_doc',
+                           con_doc = lexLHsDocString <$> con_doc',
                            con_args = PrefixCon noTypeArgs ts' }
           InfixCon t1 t2 -> do
             t1' <- addHaddockConDeclFieldTy t1
@@ -721,14 +730,14 @@ instance HasHaddock (LocatedA (ConDecl GhcPs)) where
             t2' <- addHaddockConDeclFieldTy t2
             pure $ L l_con_decl $
               ConDeclH98 { con_ext, con_name, con_forall, con_ex_tvs, con_mb_cxt,
-                           con_doc = con_doc',
+                           con_doc = lexLHsDocString <$> con_doc',
                            con_args = InfixCon t1' t2' }
           RecCon (L l_rec flds) -> do
             con_doc' <- getConDoc (getLocA con_name)
             flds' <- traverse addHaddockConDeclField flds
             pure $ L l_con_decl $
               ConDeclH98 { con_ext, con_name, con_forall, con_ex_tvs, con_mb_cxt,
-                           con_doc = con_doc',
+                           con_doc = lexLHsDocString <$> con_doc',
                            con_args = RecCon (L l_rec flds') }
 
 -- Keep track of documentation comments on the data constructor or any of its
@@ -794,7 +803,7 @@ addHaddockConDeclField
   -> ConHdkA (LConDeclField GhcPs)
 addHaddockConDeclField (L l_fld fld) =
   WriterT $ extendHdkA (locA l_fld) $ liftHdkA $ do
-    cd_fld_doc <- getPrevNextDoc (locA l_fld)
+    cd_fld_doc <- fmap lexLHsDocString <$> getPrevNextDoc (locA l_fld)
     return (L l_fld (fld { cd_fld_doc }),
             HasInnerDocs (isJust cd_fld_doc))
 
@@ -863,7 +872,7 @@ addConTrailingDoc l_sep =
                     x <$ reportExtraDocs trailingDocs
                   mk_doc_fld (L l' con_fld) = do
                     doc <- selectDocString trailingDocs
-                    return $ L l' (con_fld { cd_fld_doc = doc })
+                    return $ L l' (con_fld { cd_fld_doc = fmap lexLHsDocString doc })
               con_args' <- case con_args con_decl of
                 x@(PrefixCon _ [])  -> x <$ reportExtraDocs trailingDocs
                 x@(RecCon (L _ [])) -> x <$ reportExtraDocs trailingDocs
@@ -874,7 +883,7 @@ addConTrailingDoc l_sep =
                   return (RecCon (L l_rec flds'))
               return $ L l (con_decl{ con_args = con_args' })
             else do
-              con_doc' <- selectDocString (con_doc con_decl `mcons` trailingDocs)
+              con_doc' <- selectDoc (con_doc con_decl `mcons` (map lexLHsDocString trailingDocs))
               return $ L l (con_decl{ con_doc = con_doc' })
         _ -> panic "addConTrailingDoc: non-H98 ConDecl"
 
@@ -1290,6 +1299,15 @@ selectDocString = select . filterOut (isEmptyDocString . unLoc)
       reportExtraDocs extra_docs
       return (Just doc)
 
+selectDoc :: [LHsDoc a] -> HdkM (Maybe (LHsDoc a))
+selectDoc = select . filterOut (isEmptyDocString . hsDocString . unLoc)
+  where
+    select [] = return Nothing
+    select [doc] = return (Just doc)
+    select (doc : extra_docs) = do
+      reportExtraDocs $ map (fmap hsDocString) extra_docs
+      return (Just doc)
+
 reportExtraDocs :: [LHsDocString] -> HdkM ()
 reportExtraDocs =
   traverse_ (\extra_doc -> appendHdkWarning (HdkWarnExtraComment extra_doc))
@@ -1309,10 +1327,10 @@ mkDocDecl layout_info (L l_comment hdk_comment)
   | otherwise =
     Just $ L (noAnnSrcSpan $ mkSrcSpanPs l_comment) $
       case hdk_comment of
-        HdkCommentNext doc -> DocCommentNext doc
-        HdkCommentPrev doc -> DocCommentPrev doc
-        HdkCommentNamed s doc -> DocCommentNamed s doc
-        HdkCommentSection n doc -> DocGroup n doc
+        HdkCommentNext doc -> DocCommentNext (lexHsDocString doc)
+        HdkCommentPrev doc -> DocCommentPrev (lexHsDocString doc)
+        HdkCommentNamed s doc -> DocCommentNamed s (lexHsDocString doc)
+        HdkCommentSection n doc -> DocGroup n (lexHsDocString doc)
   where
     --  'indent_mismatch' checks if the documentation comment has the exact
     --  indentation level expected by the parent node.
@@ -1342,9 +1360,9 @@ mkDocDecl layout_info (L l_comment hdk_comment)
 mkDocIE :: PsLocated HdkComment -> Maybe (LIE GhcPs)
 mkDocIE (L l_comment hdk_comment) =
   case hdk_comment of
-    HdkCommentSection n doc -> Just $ L l (IEGroup noExtField n doc)
+    HdkCommentSection n doc -> Just $ L l (IEGroup noExtField n $ lexHsDocString doc)
     HdkCommentNamed s _doc -> Just $ L l (IEDocNamed noExtField s)
-    HdkCommentNext doc -> Just $ L l (IEDoc noExtField doc)
+    HdkCommentNext doc -> Just $ L l (IEDoc noExtField $ lexHsDocString doc)
     _ -> Nothing
   where l = noAnnSrcSpan $ mkSrcSpanPs l_comment
 
@@ -1468,7 +1486,7 @@ instance Monoid ColumnBound where
 
 mkLHsDocTy :: LHsType GhcPs -> Maybe LHsDocString -> LHsType GhcPs
 mkLHsDocTy t Nothing = t
-mkLHsDocTy t (Just doc) = L (getLoc t) (HsDocTy noAnn t doc)
+mkLHsDocTy t (Just doc) = L (getLoc t) (HsDocTy noAnn t $ lexLHsDocString doc)
 
 getForAllTeleLoc :: HsForAllTelescope GhcPs -> SrcSpan
 getForAllTeleLoc tele =

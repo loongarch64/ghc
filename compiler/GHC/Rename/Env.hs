@@ -76,7 +76,7 @@ import GHC.Types.Avail
 import GHC.Types.Error
 import GHC.Unit.Module
 import GHC.Unit.Module.ModIface
-import GHC.Unit.Module.Warnings  ( WarningTxt, pprWarningTxtForMsg )
+import GHC.Unit.Module.Warnings  ( WarningTxt, WarningSort (WsDeprecated, WsWarning), warningTxtContents )
 import GHC.Core.ConLike
 import GHC.Core.DataCon
 import GHC.Core.TyCon
@@ -1604,7 +1604,17 @@ warnIfDeprecated gre@(GRE { gre_imp = iss })
         extra | imp_mod == moduleName name_mod = Outputable.empty
               | otherwise = text ", but defined in" <+> ppr name_mod
 
-lookupImpDeprec :: ModIface -> GlobalRdrElt -> Maybe WarningTxt
+pprWarningTxtForMsg :: WarningTxt (HsDoc a) -> SDoc
+pprWarningTxtForMsg w =
+    withHeading (doubleQuotes (vcat (map (text . unpackHDS . hsDocString) ws)))
+  where
+    (sort_, ws) = warningTxtContents w
+    withHeading =
+      case sort_ of
+        WsDeprecated -> (text "Deprecated:" <+>)
+        WsWarning -> id
+
+lookupImpDeprec :: ModIface -> GlobalRdrElt -> Maybe (WarningTxt (HsDoc Name))
 lookupImpDeprec iface gre
   = mi_warn_fn (mi_final_exts iface) (greOccName gre) `mplus`  -- Bleat if the thing,
     case gre_par gre of                      -- or its parent, is warn'd

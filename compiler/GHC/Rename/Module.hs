@@ -27,6 +27,7 @@ import GHC.Types.FieldLabel
 import GHC.Types.Name.Reader
 import GHC.Rename.HsType
 import GHC.Rename.Bind
+import GHC.Rename.Doc
 import GHC.Rename.Env
 import GHC.Rename.Utils ( HsDocContext(..), mapFvRn, bindLocalNames
                         , checkDupRdrNamesN, bindLocalNamesFV
@@ -204,6 +205,7 @@ rnSrcDecls group@(HsGroup { hs_valds   = val_decls,
    (rn_default_decls, src_fvs5) <- rnList rnDefaultDecl   default_decls ;
    (rn_deriv_decls,   src_fvs6) <- rnList rnSrcDerivDecl  deriv_decls ;
    (rn_splice_decls,  src_fvs7) <- rnList rnSpliceDecl    splice_decls ;
+   rn_docs <- traverse rnLDocDecl docs ;
 
    last_tcg_env <- getGblEnv ;
    -- (I) Compute the results and return
@@ -219,7 +221,7 @@ rnSrcDecls group@(HsGroup { hs_valds   = val_decls,
                              hs_annds  = rn_ann_decls,
                              hs_defds  = rn_default_decls,
                              hs_ruleds = rn_rule_decls,
-                             hs_docs   = docs } ;
+                             hs_docs   = rn_docs } ;
 
         tcf_bndrs = hsTyClForeignBinders rn_tycl_decls rn_foreign_decls ;
         other_def  = (Just (mkNameSet tcf_bndrs), emptyNameSet) ;
@@ -263,7 +265,7 @@ gather them together.
 -}
 
 -- checks that the deprecations are defined locally, and that there are no duplicates
-rnSrcWarnDecls :: NameSet -> [LWarnDecls GhcPs] -> RnM Warnings
+rnSrcWarnDecls :: NameSet -> [LWarnDecls GhcPs] -> RnM (Warnings (HsDoc Name))
 rnSrcWarnDecls _ []
   = return NoWarnings
 
@@ -283,7 +285,8 @@ rnSrcWarnDecls bndr_set decls'
        -- ensures that the names are defined locally
      = do { names <- concatMapM (lookupLocalTcNames sig_ctxt what . unLoc)
                                 rdr_names
-          ; return [(rdrNameOcc rdr, txt) | (rdr, _) <- names] }
+          ; txt' <- traverse rnHsDoc txt
+          ; return [(rdrNameOcc rdr, txt') | (rdr, _) <- names] }
 
    what = text "deprecation"
 
@@ -1872,11 +1875,12 @@ rnTyClDecl (ClassDecl { tcdCtxt = context, tcdLName = lcls,
                 -- and the methods are already in scope
 
         ; let all_fvs = meth_fvs `plusFV` stuff_fvs `plusFV` fv_at_defs
+        ; docs' <- traverse rnLDocDecl docs
         ; return (ClassDecl { tcdCtxt = context', tcdLName = lcls',
                               tcdTyVars = tyvars', tcdFixity = fixity,
                               tcdFDs = fds', tcdSigs = sigs',
                               tcdMeths = mbinds', tcdATs = ats', tcdATDefs = at_defs',
-                              tcdDocs = docs, tcdCExt = all_fvs },
+                              tcdDocs = docs', tcdCExt = all_fvs },
                   all_fvs ) }
   where
     cls_doc  = ClassDeclCtx lcls
@@ -2318,10 +2322,11 @@ rnConDecl decl@(ConDeclH98 { con_name = name, con_ex_tvs = ex_tvs
              [ text "ex_tvs:" <+> ppr ex_tvs
              , text "new_ex_dqtvs':" <+> ppr new_ex_tvs ])
 
+        ; mb_doc' <- traverse rnLHsDoc mb_doc
         ; return (decl { con_ext = noAnn
                        , con_name = new_name, con_ex_tvs = new_ex_tvs
                        , con_mb_cxt = new_context, con_args = new_args
-                       , con_doc = mb_doc
+                       , con_doc = mb_doc'
                        , con_forall = forall }, -- Remove when #18311 is fixed
                   all_fvs) }}
 
@@ -2362,10 +2367,11 @@ rnConDecl (ConDeclGADT { con_names   = names
 
         ; traceRn "rnConDecl (ConDeclGADT)"
             (ppr names $$ ppr outer_bndrs')
+        ; new_mb_doc <- traverse rnLHsDoc mb_doc
         ; return (ConDeclGADT { con_g_ext = noAnn, con_names = new_names
                               , con_bndrs = L l outer_bndrs', con_mb_cxt = new_cxt
                               , con_g_args = new_args, con_res_ty = new_res_ty
-                              , con_doc = mb_doc },
+                              , con_doc = new_mb_doc },
                   all_fvs) } }
 
 rnMbContext :: HsDocContext -> Maybe (LHsContext GhcPs)

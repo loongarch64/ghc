@@ -1,4 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 -- | Source text
 --
@@ -11,7 +13,8 @@ module GHC.Types.SourceText
    -- * Literals
    , IntegralLit(..)
    , FractionalLit(..)
-   , StringLiteral(..)
+   , StringLiteral, sl_st, sl_fs, sl_tc
+   , WithSourceText(.., StringLiteral)
    , negateIntegralLit
    , negateFractionalLit
    , mkIntegralLit
@@ -22,7 +25,7 @@ module GHC.Types.SourceText
    -- Used by the pm checker.
    , fractionalLitFromRational
    , mkFractionalLit
-
+   , noSourceText
    )
 where
 
@@ -289,15 +292,14 @@ instance Outputable FractionalLit where
     pprWithSourceText (fl_text fl) $
       rational $ mkRationalWithExponentBase (fl_signi fl) (fl_exp fl) (fl_exp_base fl)
 
--- | A String Literal in the source, including its original raw format for use by
--- source to source manipulation tools.
-data StringLiteral = StringLiteral
-                       { sl_st :: SourceText, -- literal raw source.
-                                              -- See not [Literal source text]
-                         sl_fs :: FastString, -- literal string value
-                         sl_tc :: Maybe RealSrcSpan -- Location of
-                                                    -- possible
-                                                    -- trailing comma
+data WithSourceText a = WithSourceText
+  { wst_st :: SourceText
+    -- ^ Literal raw source.
+    -- See Note [Literal source text]
+  , unWithSourceText :: a
+  , wst_tc :: Maybe RealSrcSpan -- Location of
+                                -- possible
+                                -- trailing comma
                        -- AZ: if we could have a LocatedA
                        -- StringLiteral we would not need sl_tc, but
                        -- that would cause import loops.
@@ -306,19 +308,33 @@ data StringLiteral = StringLiteral
                        -- editing and reprinting the AST. Need a more
                        -- robust solution.
 
-                       } deriving Data
+  } deriving (Data, Functor, Foldable, Traversable)
 
-instance Eq StringLiteral where
-  (StringLiteral _ a _) == (StringLiteral _ b _) = a == b
+instance Eq a => Eq (WithSourceText a) where
+  (==) = (==) `on` unWithSourceText
 
-instance Outputable StringLiteral where
-  ppr sl = pprWithSourceText (sl_st sl) (ftext $ sl_fs sl)
-
-instance Binary StringLiteral where
-  put_ bh (StringLiteral st fs _) = do
+instance Binary a => Binary (WithSourceText a) where
+  put_ bh (WithSourceText st fs l) = do
             put_ bh st
             put_ bh fs
+            put_ bh l
   get bh = do
             st <- get bh
             fs <- get bh
-            return (StringLiteral st fs Nothing)
+            l  <- get bh
+            return (WithSourceText st fs l)
+
+instance Outputable a => Outputable (WithSourceText a) where
+  ppr (WithSourceText st x _) = pprWithSourceText st (ppr x)
+
+noSourceText :: a -> WithSourceText a
+noSourceText x = WithSourceText NoSourceText x Nothing
+
+-- | A String Literal in the source, including its original raw format for use by
+-- source to source manipulation tools.
+type StringLiteral = WithSourceText FastString
+
+{-# COMPLETE StringLiteral #-}
+pattern StringLiteral :: SourceText -> FastString -> Maybe RealSrcSpan -> StringLiteral
+pattern StringLiteral{sl_st, sl_fs, sl_tc} = WithSourceText sl_st sl_fs sl_tc
+

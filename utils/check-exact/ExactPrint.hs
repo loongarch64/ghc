@@ -424,6 +424,10 @@ printSourceText :: SourceText -> String -> EPP ()
 printSourceText NoSourceText txt   =  printStringAdvance txt
 printSourceText (SourceText txt) _ =  printStringAdvance txt
 
+printSourceText' :: SourceText -> EPP () -> EPP ()
+printSourceText' NoSourceText x     =  x
+printSourceText' (SourceText txt) _ =  printStringAdvance txt
+
 -- ---------------------------------------------------------------------
 
 printStringAtRs :: RealSrcSpan -> String -> EPP ()
@@ -703,17 +707,12 @@ instance ExactPrint ModuleName where
 
 -- ---------------------------------------------------------------------
 
-instance ExactPrint (LocatedP WarningTxt) where
+instance ExactPrint a => ExactPrint (LocatedP (WarningTxt a)) where
   getAnnotationEntry = entryFromLocatedA
-  exact (L (SrcSpanAnn an _) (WarningTxt (L _ src) ws)) = do
-    markAnnOpenP an src "{-# WARNING"
-    markLocatedAAL an apr_rest AnnOpenS
-    markAnnotated ws
-    markLocatedAAL an apr_rest AnnCloseS
-    markAnnCloseP an
-
-  exact (L (SrcSpanAnn an _) (DeprecatedTxt (L _ src) ws)) = do
-    markAnnOpenP an src "{-# DEPRECATED"
+  exact (L (SrcSpanAnn an _) (WarningTxt (L _ (WithSourceText src w _tc)) ws)) = do
+    case w of
+      WsWarning -> markAnnOpenP an src "{-# WARNING"
+      WsDeprecated -> markAnnOpenP an src "{-# DEPRECATED"
     markLocatedAAL an apr_rest AnnOpenS
     markAnnotated ws
     markLocatedAAL an apr_rest AnnCloseS
@@ -771,6 +770,10 @@ instance ExactPrint (ImportDecl GhcPs) where
 instance ExactPrint HsDocString where
   getAnnotationEntry _ = NoEntryVal
   exact = withPpr -- TODO:AZ use annotations
+
+instance ExactPrint (HsDoc RdrName) where
+  getAnnotationEntry _ = NoEntryVal
+  exact = exact . hsDocString
 
 -- ---------------------------------------------------------------------
 
@@ -960,16 +963,15 @@ instance ExactPrint (WarnDecl GhcPs) where
     markEpAnn an AnnOpenS -- "["
     case txt of
       WarningTxt    _src ls -> markAnnotated ls
-      DeprecatedTxt _src ls -> markAnnotated ls
     markEpAnn an AnnCloseS -- "]"
 
 -- ---------------------------------------------------------------------
 
-instance ExactPrint StringLiteral where
+instance ExactPrint a => ExactPrint (WithSourceText a) where
   getAnnotationEntry = const NoEntryVal
 
-  exact (StringLiteral src fs mcomma) = do
-    printSourceText src (show (unpackFS fs))
+  exact (WithSourceText src x mcomma) = do
+    printSourceText' src (markAnnotated x)
     mapM_ (\r -> printStringAtKw' r ",") mcomma
 
 -- ---------------------------------------------------------------------
@@ -1061,16 +1063,16 @@ instance ExactPrint (SpliceDecl GhcPs) where
 
 -- ---------------------------------------------------------------------
 
-instance ExactPrint DocDecl where
+instance ExactPrint (DocDecl GhcPs) where
   getAnnotationEntry = const NoEntryVal
 
   exact v =
     let str =
           case v of
-            (DocCommentNext ds)     -> unpackHDS ds
-            (DocCommentPrev ds)     -> unpackHDS ds
-            (DocCommentNamed _s ds) -> unpackHDS ds
-            (DocGroup _i ds)        -> unpackHDS ds
+            (DocCommentNext ds)     -> unpackHDS $ hsDocString ds
+            (DocCommentPrev ds)     -> unpackHDS $ hsDocString ds
+            (DocCommentNamed _s ds) -> unpackHDS $ hsDocString ds
+            (DocGroup _i ds)        -> unpackHDS $ hsDocString ds
     in
       printStringAdvance str
 

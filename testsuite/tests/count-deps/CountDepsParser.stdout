@@ -129,6 +129,7 @@ GHC.Parser.CharClass
 GHC.Parser.Errors.Basic
 GHC.Parser.Errors.Ppr
 GHC.Parser.Errors.Types
+GHC.Parser.HaddockLex
 GHC.Parser.Lexer
 GHC.Parser.PostProcess
 GHC.Parser.PostProcess.Haddock

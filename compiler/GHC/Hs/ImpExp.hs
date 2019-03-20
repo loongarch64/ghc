@@ -19,8 +19,8 @@ module GHC.Hs.ImpExp where
 import GHC.Prelude
 
 import GHC.Unit.Module        ( ModuleName, IsBootInterface(..) )
-import GHC.Hs.Doc             ( HsDocString )
-import GHC.Types.SourceText   ( SourceText(..), StringLiteral(..), pprWithSourceText )
+import GHC.Hs.Doc             ( HsDoc )
+import GHC.Types.SourceText   ( SourceText(..), StringLiteral, WithSourceText(..), pprWithSourceText )
 import GHC.Types.FieldLabel   ( FieldLabel )
 
 import GHC.Utils.Outputable
@@ -276,8 +276,10 @@ data IE pass
         -- - 'GHC.Parser.Annotation.AnnKeywordId's : 'GHC.Parser.Annotation.AnnModule'
 
         -- For details on above see note [exact print annotations] in GHC.Parser.Annotation
-  | IEGroup             (XIEGroup pass) Int HsDocString -- ^ Doc section heading
-  | IEDoc               (XIEDoc pass) HsDocString       -- ^ Some documentation
+  | IEGroup             (XIEGroup pass) Int (HsDoc (IdP pass))
+        -- ^ Doc section heading
+  | IEDoc               (XIEDoc pass) (HsDoc (IdP pass))
+        -- ^ Some documentation
   | IEDocNamed          (XIEDocNamed pass) String    -- ^ Reference to named doc
   | XIE !(XXIE pass)
 
