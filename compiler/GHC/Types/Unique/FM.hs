@@ -33,6 +33,7 @@ module GHC.Types.Unique.FM (
 
         -- ** Manipulating those mappings
         emptyUFM,
+        isSingletonUFM,
         unitUFM,
         unitDirectlyUFM,
         zipToUFM,
@@ -86,6 +87,7 @@ import GHC.Utils.Outputable
 import GHC.Utils.Panic.Plain
 import qualified Data.IntMap as M
 import qualified Data.IntMap.Strict as MS
+import qualified Data.IntMap.Internal as MI
 import qualified Data.IntSet as S
 import Data.Data
 import qualified Data.Semigroup as Semi
@@ -111,6 +113,13 @@ emptyUFM = UFM M.empty
 
 isNullUFM :: UniqFM key elt -> Bool
 isNullUFM (UFM m) = M.null m
+
+-- Avoids an O(n) call
+isSingletonUFM :: UniqFM key elt -> Bool
+isSingletonUFM (UFM m) =
+  case m of
+    MI.Tip _ _ -> True
+    _          -> False
 
 unitUFM :: Uniquable key => key -> elt -> UniqFM key elt
 unitUFM k v = UFM (M.singleton (getKey $ getUnique k) v)

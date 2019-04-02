@@ -40,6 +40,7 @@ module GHC.Stg.Lint ( lintStgTopBindings ) where
 import GHC.Prelude
 
 import GHC.Stg.Syntax
+import GHC.Stg.Utils
 
 import GHC.Driver.Session
 import GHC.Driver.Config.Diagnostic
@@ -191,7 +192,7 @@ lintStgExpr :: (OutputablePass a, BinderP a ~ Id) => GenStgExpr a -> LintM ()
 
 lintStgExpr (StgLit _) = return ()
 
-lintStgExpr (StgApp fun args) = do
+lintStgExpr (StgApp _ fun args) = do
     lintStgVar fun
     mapM_ lintStgArg args
 

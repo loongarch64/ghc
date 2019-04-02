@@ -20,8 +20,8 @@ import GHC.Prelude
 import GHC.Driver.Session
 
 import GHC.Core
-import GHC.Core.Utils   ( exprType, findDefault, isJoinBind
-                        , exprIsTickedString_maybe )
+import GHC.Core.Utils   ( exprType, isJoinBind
+                        , exprIsTickedString_maybe, findDefault )
 import GHC.Core.Opt.Arity   ( manifestArity )
 import GHC.Core.Type
 import GHC.Core.TyCon
@@ -29,6 +29,7 @@ import GHC.Core.DataCon
 
 import GHC.Stg.Syntax
 import GHC.Stg.Debug
+import GHC.Stg.Utils
 
 import GHC.Types.RepType
 import GHC.Types.Id.Make ( coercionTokenId )
@@ -49,7 +50,7 @@ import GHC.Unit.Module
 import GHC.Builtin.Types ( unboxedUnitDataCon )
 import GHC.Data.FastString
 import GHC.Platform.Ways
-import GHC.Builtin.PrimOps ( PrimCall(..) )
+import GHC.Builtin.PrimOps ( PrimCall(..), primOpWrapperId )
 
 import GHC.Utils.Outputable
 import GHC.Utils.Monad
@@ -562,7 +563,7 @@ coreToStgApp f args ticks = do
                                     StgOpApp (StgFCallOp call (idType f)) args' res_ty
 
                 TickBoxOpId {}   -> pprPanic "coreToStg TickBox" $ ppr (f,args')
-                _other           -> StgApp f args'
+                _other           -> StgApp MayEnter f args'
 
         add_tick !t !e = StgTick t e
         tapp = foldr add_tick app (map (coreToStgTick res_ty) ticks ++ ticks')
@@ -600,7 +601,7 @@ coreToStgArgs (arg : args) = do         -- Non-type argument
     let
         (aticks, arg'') = stripStgTicksTop tickishFloatable arg'
         stg_arg = case arg'' of
-                       StgApp v []        -> StgVarArg v
+                       StgApp _ext v []        -> StgVarArg v
                        StgConApp con _ [] _ -> StgVarArg (dataConWorkId con)
                        StgLit lit         -> StgLitArg lit
                        _                  -> pprPanic "coreToStgArgs" (ppr arg)

@@ -662,7 +662,7 @@ schemeT _d _s _p (StgOpApp StgPrimCallOp{} _args _ty)
    = unsupportedCConvException
 
    -- Case 2: Unboxed tuple
-schemeT d s p (StgConApp con _ext args _tys)
+schemeT d s p (StgConApp con _cn args _tys)
    | isUnboxedTupleDataCon con || isUnboxedSumDataCon con
    = returnUnboxedTuple d s p args
 
@@ -677,7 +677,7 @@ schemeT d s p (StgConApp con _ext args _tys)
                 else ENTER)
 
    -- Case 4: Tail call of function
-schemeT d s p (StgApp fn args)
+schemeT d s p (StgApp _ext fn args)
    = doTailCall d s p fn (reverse args)
 
 schemeT _ _ _ e = pprPanic "GHC.StgToByteCode.schemeT"
