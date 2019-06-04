@@ -494,7 +494,9 @@ primOpRules nm = \case
    IntToInt32Op   -> mkPrimOpRule nm 1 [ liftLit narrowInt32Lit
                                        , semiInversePrimOp Int32ToIntOp
                                        , narrowSubsumesAnd IntAndOp IntToInt32Op 32 ]
-   IntToInt64Op   -> mkPrimOpRule nm 1 [ liftLit narrowInt64Lit ]
+   IntToInt64Op   -> mkPrimOpRule nm 1 [ liftLit narrowInt64Lit
+                                       , semiInversePrimOp Int64ToIntOp
+                                       , narrowSubsumesAnd IntAndOp IntToInt64Op 64 ]
 
    Word8ToWordOp  -> mkPrimOpRule nm 1 [ liftLitPlatform extendWordLit
                                        , extendNarrowPassthrough WordToWord8Op 0xFF
@@ -505,8 +507,9 @@ primOpRules nm = \case
    Word32ToWordOp -> mkPrimOpRule nm 1 [ liftLitPlatform extendWordLit
                                        , extendNarrowPassthrough WordToWord32Op 0xFFFFFFFF
                                        ]
-   Word64ToWordOp -> mkPrimOpRule nm 1 [ liftLitPlatform extendWordLit ]
-
+   Word64ToWordOp -> mkPrimOpRule nm 1 [ liftLitPlatform extendWordLit
+                                       , extendNarrowPassthrough WordToWord64Op 0xFFFFFFFFFFFFFFFF
+                                       ]
    WordToWord8Op  -> mkPrimOpRule nm 1 [ liftLit narrowWord8Lit
                                        , semiInversePrimOp Word8ToWordOp
                                        , narrowSubsumesAnd WordAndOp WordToWord8Op 8 ]
@@ -516,7 +519,9 @@ primOpRules nm = \case
    WordToWord32Op -> mkPrimOpRule nm 1 [ liftLit narrowWord32Lit
                                        , semiInversePrimOp Word32ToWordOp
                                        , narrowSubsumesAnd WordAndOp WordToWord32Op 32 ]
-   WordToWord64Op -> mkPrimOpRule nm 1 [ liftLit narrowWord64Lit ]
+   WordToWord64Op -> mkPrimOpRule nm 1 [ liftLit narrowWord64Lit
+                                       , semiInversePrimOp Word64ToWordOp
+                                       , narrowSubsumesAnd WordAndOp WordToWord64Op 64 ]
 
    Word8ToInt8Op  -> mkPrimOpRule nm 1 [ liftLitPlatform (litNumCoerce LitNumInt8)
                                        , semiInversePrimOp Int8ToWord8Op ]
@@ -1139,6 +1144,14 @@ int32Result result = Just (int32Result' result)
 int32Result' :: Integer -> CoreExpr
 int32Result' result = Lit (mkLitInt32Wrap result)
 
+int64Result :: Integer -> Maybe CoreExpr
+int64Result result = Just (int64Result' result)
+
+int64Result' :: Integer -> CoreExpr
+int64Result' result = Lit (mkLitInt64Wrap result)
+
+-- | Create an Int literal expression while ensuring the given Integer is in the
+-- target Int range
 intResult :: Platform -> Integer -> Maybe CoreExpr
 intResult platform result = Just (intResult' platform result)
 
@@ -1181,6 +1194,14 @@ word32Result' result = Lit (mkLitWord32Wrap result)
 
 -- | Create a Word literal expression while ensuring the given Integer is in the
 -- target Word range
+word64Result :: Integer -> Maybe CoreExpr
+word64Result result = Just (word64Result' result)
+
+word64Result' :: Integer -> CoreExpr
+word64Result' result = Lit (mkLitWord64Wrap result)
+
+-- | Create a Word literal expression while ensuring the given Integer is in the
+-- target Word range
 wordResult :: Platform -> Integer -> Maybe CoreExpr
 wordResult platform result = Just (wordResult' platform result)
 
@@ -1196,19 +1217,6 @@ wordCResult platform result = Just (mkPair [Lit lit, Lit c])
     mkPair = mkCoreUbxTup [wordPrimTy, intPrimTy]
     (lit, b) = mkLitWordWrapC platform result
     c = if b then onei platform else zeroi platform
-
-int64Result :: Integer -> Maybe CoreExpr
-int64Result result = Just (int64Result' result)
-
-int64Result' :: Integer -> CoreExpr
-int64Result' result = Lit (mkLitInt64Wrap result)
-
-word64Result :: Integer -> Maybe CoreExpr
-word64Result result = Just (word64Result' result)
-
-word64Result' :: Integer -> CoreExpr
-word64Result' result = Lit (mkLitWord64Wrap result)
-
 
 -- | 'ambiant (primop x) = x', but not nececesarily 'primop (ambient x) = x'.
 semiInversePrimOp :: PrimOp -> RuleM CoreExpr
