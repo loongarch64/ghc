@@ -132,8 +132,8 @@
 -- 3-tuple in the list of 3-tuples. That is, the vector attribute allows us to
 -- define a family of types or primops. Vector support also adds three new
 -- keywords: VECTOR, SCALAR, and VECTUPLE. These keywords are expanded to types
--- derived from the 3-tuple. For the 3-tuple <Int64,INT64,2>, VECTOR expands to
--- Int64X2#, SCALAR expands to INT64, and VECTUPLE expands to (# INT64, INT64
+-- derived from the 3-tuple. For the 3-tuple <Int64,Int64#,2>, VECTOR expands to
+-- Int64X2#, SCALAR expands to Int64#, and VECTUPLE expands to (# Int64#, Int64#
 -- #).
 
 defaults
@@ -254,11 +254,6 @@ section "The word size story."
          but will work on existing 32-bit and 64-bit GHC targets; they
          are completely bogus when tag bits are used in {\tt Int\#},
          so are not available in this case.  }
-
--- Define synonyms for indexing ops.
-
-#define INT64 Int64#
-#define WORD64 Word64#
 
 ------------------------------------------------------------------------
 section "Char#"
@@ -955,7 +950,7 @@ primop   PopCnt16Op   "popCnt16#"   GenPrimOp   Word# -> Word#
     {Count the number of set bits in the lower 16 bits of a word.}
 primop   PopCnt32Op   "popCnt32#"   GenPrimOp   Word# -> Word#
     {Count the number of set bits in the lower 32 bits of a word.}
-primop   PopCnt64Op   "popCnt64#"   GenPrimOp   WORD64 -> Word#
+primop   PopCnt64Op   "popCnt64#"   GenPrimOp   Word64# -> Word#
     {Count the number of set bits in a 64-bit word.}
 primop   PopCntOp   "popCnt#"   GenPrimOp   Word# -> Word#
     {Count the number of set bits in a word.}
@@ -966,7 +961,7 @@ primop   Pdep16Op   "pdep16#"   GenPrimOp   Word# -> Word# -> Word#
     {Deposit bits to lower 16 bits of a word at locations specified by a mask.}
 primop   Pdep32Op   "pdep32#"   GenPrimOp   Word# -> Word# -> Word#
     {Deposit bits to lower 32 bits of a word at locations specified by a mask.}
-primop   Pdep64Op   "pdep64#"   GenPrimOp   WORD64 -> WORD64 -> WORD64
+primop   Pdep64Op   "pdep64#"   GenPrimOp   Word64# -> Word64# -> Word64#
     {Deposit bits to a word at locations specified by a mask.}
 primop   PdepOp   "pdep#"   GenPrimOp   Word# -> Word# -> Word#
     {Deposit bits to a word at locations specified by a mask.}
@@ -977,7 +972,7 @@ primop   Pext16Op   "pext16#"   GenPrimOp   Word# -> Word# -> Word#
     {Extract bits from lower 16 bits of a word at locations specified by a mask.}
 primop   Pext32Op   "pext32#"   GenPrimOp   Word# -> Word# -> Word#
     {Extract bits from lower 32 bits of a word at locations specified by a mask.}
-primop   Pext64Op   "pext64#"   GenPrimOp   WORD64 -> WORD64 -> WORD64
+primop   Pext64Op   "pext64#"   GenPrimOp   Word64# -> Word64# -> Word64#
     {Extract bits from a word at locations specified by a mask.}
 primop   PextOp   "pext#"   GenPrimOp   Word# -> Word# -> Word#
     {Extract bits from a word at locations specified by a mask.}
@@ -988,7 +983,7 @@ primop   Clz16Op   "clz16#" GenPrimOp   Word# -> Word#
     {Count leading zeros in the lower 16 bits of a word.}
 primop   Clz32Op   "clz32#" GenPrimOp   Word# -> Word#
     {Count leading zeros in the lower 32 bits of a word.}
-primop   Clz64Op   "clz64#" GenPrimOp WORD64 -> Word#
+primop   Clz64Op   "clz64#" GenPrimOp Word64# -> Word#
     {Count leading zeros in a 64-bit word.}
 primop   ClzOp     "clz#"   GenPrimOp   Word# -> Word#
     {Count leading zeros in a word.}
@@ -999,7 +994,7 @@ primop   Ctz16Op   "ctz16#" GenPrimOp   Word# -> Word#
     {Count trailing zeros in the lower 16 bits of a word.}
 primop   Ctz32Op   "ctz32#" GenPrimOp   Word# -> Word#
     {Count trailing zeros in the lower 32 bits of a word.}
-primop   Ctz64Op   "ctz64#" GenPrimOp WORD64 -> Word#
+primop   Ctz64Op   "ctz64#" GenPrimOp Word64# -> Word#
     {Count trailing zeros in a 64-bit word.}
 primop   CtzOp     "ctz#"   GenPrimOp   Word# -> Word#
     {Count trailing zeros in a word.}
@@ -1008,7 +1003,7 @@ primop   BSwap16Op   "byteSwap16#"   GenPrimOp   Word# -> Word#
     {Swap bytes in the lower 16 bits of a word. The higher bytes are undefined. }
 primop   BSwap32Op   "byteSwap32#"   GenPrimOp   Word# -> Word#
     {Swap bytes in the lower 32 bits of a word. The higher bytes are undefined. }
-primop   BSwap64Op   "byteSwap64#"   GenPrimOp   WORD64 -> WORD64
+primop   BSwap64Op   "byteSwap64#"   GenPrimOp   Word64# -> Word64#
     {Swap bytes in a 64 bits of a word.}
 primop   BSwapOp     "byteSwap#"     GenPrimOp   Word# -> Word#
     {Swap bytes in a word.}
@@ -1019,7 +1014,7 @@ primop   BRev16Op   "bitReverse16#"   GenPrimOp   Word# -> Word#
     {Reverse the order of the bits in a 16-bit word.}
 primop   BRev32Op   "bitReverse32#"   GenPrimOp   Word# -> Word#
     {Reverse the order of the bits in a 32-bit word.}
-primop   BRev64Op   "bitReverse64#"   GenPrimOp   WORD64 -> WORD64
+primop   BRev64Op   "bitReverse64#"   GenPrimOp   Word64# -> Word64#
     {Reverse the order of the bits in a 64-bit word.}
 primop   BRevOp     "bitReverse#"     GenPrimOp   Word# -> Word#
     {Reverse the order of the bits in a word.}
@@ -1198,7 +1193,7 @@ primop   DoubleDecode_2IntOp   "decodeDouble_2Int#" GenPrimOp
    with out_of_line = True
 
 primop   DoubleDecode_Int64Op   "decodeDouble_Int64#" GenPrimOp
-   Double# -> (# INT64, Int# #)
+   Double# -> (# Int64#, Int# #)
    {Decode {\tt Double\#} into mantissa and base-2 exponent.}
    with out_of_line = True
 
@@ -1931,7 +1926,7 @@ primop CasByteArrayOp_Int32 "casInt32Array#" GenPrimOp
         can_fail = True
 
 primop CasByteArrayOp_Int64 "casInt64Array#" GenPrimOp
-   MutableByteArray# s -> Int# -> INT64 -> INT64 -> State# s -> (# State# s, INT64 #)
+   MutableByteArray# s -> Int# -> Int64# -> Int64# -> State# s -> (# State# s, Int64# #)
    {Given an array, an offset in 64 bit units, the expected old value, and
     the new value, perform an atomic compare and swap i.e. write the new
     value if the current value matches the provided old value. Returns
@@ -2177,7 +2172,7 @@ primop IndexOffAddrOp_Int32 "indexInt32OffAddr#" GenPrimOp
    with can_fail = True
 
 primop IndexOffAddrOp_Int64 "indexInt64OffAddr#" GenPrimOp
-   Addr# -> Int# -> INT64
+   Addr# -> Int# -> Int64#
    with can_fail = True
 
 primop IndexOffAddrOp_Word8 "indexWord8OffAddr#" GenPrimOp
@@ -2193,7 +2188,7 @@ primop IndexOffAddrOp_Word32 "indexWord32OffAddr#" GenPrimOp
    with can_fail = True
 
 primop IndexOffAddrOp_Word64 "indexWord64OffAddr#" GenPrimOp
-   Addr# -> Int# -> WORD64
+   Addr# -> Int# -> Word64#
    with can_fail = True
 
 primop ReadOffAddrOp_Char "readCharOffAddr#" GenPrimOp
@@ -2254,7 +2249,7 @@ primop ReadOffAddrOp_Int32 "readInt32OffAddr#" GenPrimOp
         can_fail         = True
 
 primop ReadOffAddrOp_Int64 "readInt64OffAddr#" GenPrimOp
-   Addr# -> Int# -> State# s -> (# State# s, INT64 #)
+   Addr# -> Int# -> State# s -> (# State# s, Int64# #)
    with has_side_effects = True
         can_fail         = True
 
@@ -2274,7 +2269,7 @@ primop ReadOffAddrOp_Word32 "readWord32OffAddr#" GenPrimOp
         can_fail         = True
 
 primop ReadOffAddrOp_Word64 "readWord64OffAddr#" GenPrimOp
-   Addr# -> Int# -> State# s -> (# State# s, WORD64 #)
+   Addr# -> Int# -> State# s -> (# State# s, Word64# #)
    with has_side_effects = True
         can_fail         = True
 
@@ -2334,7 +2329,7 @@ primop  WriteOffAddrOp_Int32 "writeInt32OffAddr#" GenPrimOp
         can_fail         = True
 
 primop  WriteOffAddrOp_Int64 "writeInt64OffAddr#" GenPrimOp
-   Addr# -> Int# -> INT64 -> State# s -> State# s
+   Addr# -> Int# -> Int64# -> State# s -> State# s
    with has_side_effects = True
         can_fail         = True
 
@@ -2354,7 +2349,7 @@ primop  WriteOffAddrOp_Word32 "writeWord32OffAddr#" GenPrimOp
         can_fail         = True
 
 primop  WriteOffAddrOp_Word64 "writeWord64OffAddr#" GenPrimOp
-   Addr# -> Int# -> WORD64 -> State# s -> State# s
+   Addr# -> Int# -> Word64# -> State# s -> State# s
    with has_side_effects = True
         can_fail         = True
 
@@ -2443,7 +2438,7 @@ primop  CasAddrOp_Word32 "atomicCasWord32Addr#" GenPrimOp
         can_fail         = True
 
 primop  CasAddrOp_Word64 "atomicCasWord64Addr#" GenPrimOp
-   Addr# -> WORD64 -> WORD64 -> State# s -> (# State# s, WORD64 #)
+   Addr# -> Word64# -> Word64# -> State# s -> (# State# s, Word64# #)
    { Compare and swap on a 64 bit-sized and aligned memory location.
 
      Use as: \s -> atomicCasWordAddr64# location expected desired s
@@ -3615,7 +3610,7 @@ primop  TraceMarkerOp "traceMarker#" GenPrimOp
    out_of_line      = True
 
 primop  SetThreadAllocationCounter "setThreadAllocationCounter#" GenPrimOp
-   INT64 -> State# RealWorld -> State# RealWorld
+   Int64# -> State# RealWorld -> State# RealWorld
    { Sets the allocation counter for the current thread to the given value. }
    with
    has_side_effects = True
@@ -3646,20 +3641,20 @@ section "SIMD Vectors"
 ------------------------------------------------------------------------
 
 #define ALL_VECTOR_TYPES \
-  [<Int8,Int8#,16>,<Int16,Int16#,8>,<Int32,Int32#,4>,<Int64,INT64,2> \
-  ,<Int8,Int8#,32>,<Int16,Int16#,16>,<Int32,Int32#,8>,<Int64,INT64,4> \
-  ,<Int8,Int8#,64>,<Int16,Int16#,32>,<Int32,Int32#,16>,<Int64,INT64,8> \
-  ,<Word8,Word#,16>,<Word16,Word#,8>,<Word32,Word32#,4>,<Word64,WORD64,2> \
-  ,<Word8,Word#,32>,<Word16,Word#,16>,<Word32,Word32#,8>,<Word64,WORD64,4> \
-  ,<Word8,Word#,64>,<Word16,Word#,32>,<Word32,Word32#,16>,<Word64,WORD64,8> \
+  [<Int8,Int8#,16>,<Int16,Int16#,8>,<Int32,Int32#,4>,<Int64,Int64#,2> \
+  ,<Int8,Int8#,32>,<Int16,Int16#,16>,<Int32,Int32#,8>,<Int64,Int64#,4> \
+  ,<Int8,Int8#,64>,<Int16,Int16#,32>,<Int32,Int32#,16>,<Int64,Int64#,8> \
+  ,<Word8,Word#,16>,<Word16,Word#,8>,<Word32,Word32#,4>,<Word64,Word64#,2> \
+  ,<Word8,Word#,32>,<Word16,Word#,16>,<Word32,Word32#,8>,<Word64,Word64#,4> \
+  ,<Word8,Word#,64>,<Word16,Word#,32>,<Word32,Word32#,16>,<Word64,Word64#,8> \
   ,<Float,Float#,4>,<Double,Double#,2> \
   ,<Float,Float#,8>,<Double,Double#,4> \
   ,<Float,Float#,16>,<Double,Double#,8>]
 
 #define SIGNED_VECTOR_TYPES \
-  [<Int8,Int8#,16>,<Int16,Int16#,8>,<Int32,Int32#,4>,<Int64,INT64,2> \
-  ,<Int8,Int8#,32>,<Int16,Int16#,16>,<Int32,Int32#,8>,<Int64,INT64,4> \
-  ,<Int8,Int8#,64>,<Int16,Int16#,32>,<Int32,Int32#,16>,<Int64,INT64,8> \
+  [<Int8,Int8#,16>,<Int16,Int16#,8>,<Int32,Int32#,4>,<Int64,Int64#,2> \
+  ,<Int8,Int8#,32>,<Int16,Int16#,16>,<Int32,Int32#,8>,<Int64,Int64#,4> \
+  ,<Int8,Int8#,64>,<Int16,Int16#,32>,<Int32,Int32#,16>,<Int64,Int64#,8> \
   ,<Float,Float#,4>,<Double,Double#,2> \
   ,<Float,Float#,8>,<Double,Double#,4> \
   ,<Float,Float#,16>,<Double,Double#,8>]
@@ -3670,12 +3665,12 @@ section "SIMD Vectors"
   ,<Float,Float#,16>,<Double,Double#,8>]
 
 #define INT_VECTOR_TYPES \
-  [<Int8,Int8#,16>,<Int16,Int16#,8>,<Int32,Int32#,4>,<Int64,INT64,2> \
-  ,<Int8,Int8#,32>,<Int16,Int16#,16>,<Int32,Int32#,8>,<Int64,INT64,4> \
-  ,<Int8,Int8#,64>,<Int16,Int16#,32>,<Int32,Int32#,16>,<Int64,INT64,8> \
-  ,<Word8,Word#,16>,<Word16,Word#,8>,<Word32,Word32#,4>,<Word64,WORD64,2> \
-  ,<Word8,Word#,32>,<Word16,Word#,16>,<Word32,Word32#,8>,<Word64,WORD64,4> \
-  ,<Word8,Word#,64>,<Word16,Word#,32>,<Word32,Word32#,16>,<Word64,WORD64,8>]
+  [<Int8,Int8#,16>,<Int16,Int16#,8>,<Int32,Int32#,4>,<Int64,Int64#,2> \
+  ,<Int8,Int8#,32>,<Int16,Int16#,16>,<Int32,Int32#,8>,<Int64,Int64#,4> \
+  ,<Int8,Int8#,64>,<Int16,Int16#,32>,<Int32,Int32#,16>,<Int64,Int64#,8> \
+  ,<Word8,Word#,16>,<Word16,Word#,8>,<Word32,Word32#,4>,<Word64,Word64#,2> \
+  ,<Word8,Word#,32>,<Word16,Word#,16>,<Word32,Word32#,8>,<Word64,Word64#,4> \
+  ,<Word8,Word#,64>,<Word16,Word#,32>,<Word32,Word32#,16>,<Word64,Word64#,8>]
 
 primtype VECTOR
    with llvm_only = True
