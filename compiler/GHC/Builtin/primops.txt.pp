@@ -222,8 +222,6 @@ defaults
 --      This means one shouldn't write a type involving both `a` and `o`,
 --      nor `b` and `p`, nor `o` and `v`, etc.
 
-#include "MachDeps.h"
-
 section "The word size story."
         {Haskell98 specifies that signed integers (type {\tt Int})
          must contain at least 30 bits. GHC always implements {\tt
@@ -245,33 +243,10 @@ section "The word size story."
          In addition, GHC supports families of explicit-sized integers
          and words at 8, 16, 32, and 64 bits, with the usual
          arithmetic operations, comparisons, and a range of
-         conversions.  The 8-bit and 16-bit sizes are always
-         represented as {\tt Int\#} and {\tt Word\#}, and the
+         conversions. The fixed-size integers and words are always
+         represented as {\tt Int<N>\#} and {\tt Word<N>\#}, and the
          operations implemented in terms of the primops on these
-         types, with suitable range restrictions on the results (using
-         the {\tt narrow$n$Int\#} and {\tt narrow$n$Word\#} families of
-         primops.  The 64-bit sizes are represented using {\tt Int\#}
-         and {\tt Word\#} when {\tt WORD\_SIZE\_IN\_BITS} $\geq$ 64;
-         otherwise, these are represented using distinct primitive
-         types {\tt Int64\#} and {\tt Word64\#}. These (when needed)
-         have a complete set of corresponding operations; however,
-         nearly all of these are implemented as external C functions
-         rather than as primops.  All of these details are hidden
-         under the {\tt PrelInt} and {\tt PrelWord} modules, which use
-         {\tt \#if}-defs to invoke the appropriate types and operators.
-
-         Word size also matters for the families of primops for
-         indexing/reading/writing fixed-size quantities at offsets
-         from an array base, address, or foreign pointer.  Here, a
-         slightly different approach is taken.  The names of these
-         primops are fixed, but their {\it types} vary according to
-         the value of {\tt WORD\_SIZE\_IN\_BITS}. For example, if word
-         size is at least 32 bits then an operator like
-         \texttt{indexInt32Array\#} has type {\tt ByteArray\# -> Int\#
-         -> Int\#}; otherwise it has type {\tt ByteArray\# -> Int\# ->
-         Int32\#}.  This approach confines the necessary {\tt
-         \#if}-defs to this file; no conditional compilation is needed
-         in the files that expose these primops.
+         types.
 
          Finally, there are strongly deprecated primops for coercing
          between {\tt Addr\#}, the primitive type of machine
@@ -282,13 +257,8 @@ section "The word size story."
 
 -- Define synonyms for indexing ops.
 
-#if WORD_SIZE_IN_BITS < 64
 #define INT64 Int64#
 #define WORD64 Word64#
-#else
-#define INT64 Int#
-#define WORD64 Word#
-#endif
 
 ------------------------------------------------------------------------
 section "Char#"
