@@ -570,6 +570,13 @@ In sum, in order to uphold (EQ), we need the following invariants:
 
 These invariants are all documented above, in the declaration for Type.
 
+Note [Equality on FunTys]
+~~~~~~~~~~~~~~~~~~~~~~~~~
+A FunTy arg res is just an abbreviation for a TyConApp funTyCon arg_rep
+res_rep arg res. Thus, when comparing two FunTys for equality, we must check
+the kinds of the arg and the res, in order to faithfully reproduce what
+would happen on a TyConApp.
+
 Note [Unused coercion variable in ForAllTy]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Suppose we have

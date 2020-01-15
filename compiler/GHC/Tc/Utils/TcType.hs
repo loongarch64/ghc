@@ -1620,18 +1620,13 @@ tc_eq_type keep_syns vis_only orig_ty1 orig_ty2
     -- Make sure we handle all FunTy cases since falling through to the
     -- AppTy case means that tcRepSplitAppTy_maybe may see an unzonked
     -- kind variable, which causes things to blow up.
+    -- See Note [Equality on FunTys] in TyCoRep
     go env (FunTy _ w1 arg1 res1) (FunTy _ w2 arg2 res2)
-      = go env w1 w2 && go env arg1 arg2 && go env res1 res2
-    go env ty (FunTy _ w arg res) = eqFunTy env w arg res ty
-    go env (FunTy _ w arg res) ty = eqFunTy env w arg res ty
-
-      -- See Note [Equality on AppTys] in GHC.Core.Type
-    go env (AppTy s1 t1)        ty2
-      | Just (s2, t2) <- tcRepSplitAppTy_maybe ty2
-      = go env s1 s2 && go env t1 t2
-    go env ty1                  (AppTy s2 t2)
-      | Just (s1, t1) <- tcRepSplitAppTy_maybe ty1
-      = go env s1 s2 && go env t1 t2
+      = kinds_eq && go env arg1 arg2 && go env res1 res2 && go env w1 w2
+      where
+        kinds_eq | vis_only  = True
+                 | otherwise = go env (typeKind arg1) (typeKind arg2) &&
+                               go env (typeKind res1) (typeKind res2)
 
     go env (TyConApp tc1 ts1)   (TyConApp tc2 ts2)
       = tc1 == tc2 && gos env (tc_vis tc1) ts1 ts2
@@ -1658,25 +1653,6 @@ tc_eq_type keep_syns vis_only orig_ty1 orig_ty2
 
     orig_env = mkRnEnv2 $ mkInScopeSet $ tyCoVarsOfTypes [orig_ty1, orig_ty2]
 
-    -- @eqFunTy w arg res ty@ is True when @ty@ equals @FunTy w arg res@. This is
-    -- sometimes hard to know directly because @ty@ might have some casts
-    -- obscuring the FunTy. And 'splitAppTy' is difficult because we can't
-    -- always extract a RuntimeRep (see Note [xyz]) if the kind of the arg or
-    -- res is unzonked. Thus this function, which handles this
-    -- corner case.
-    eqFunTy :: RnEnv2 -> Mult -> Type -> Type -> Type -> Bool
-               -- Last arg is /not/ FunTy
-    eqFunTy env w arg res ty@(AppTy{}) = get_args ty []
-      where
-        get_args :: Type -> [Type] -> Bool
-        get_args (AppTy f x)       args = get_args f (x:args)
-        get_args (CastTy t _)      args = get_args t args
-        get_args (TyConApp tc tys) args
-          | tc == funTyCon
-          , [w', _, _, arg', res'] <- tys ++ args
-          = go env w w' && go env arg arg' && go env res res'
-        get_args _ _    = False
-    eqFunTy _ _ _ _ _   = False
 {-# INLINE tc_eq_type #-} -- See Note [Specialising tc_eq_type].
 
 {- Note [Typechecker equality vs definitional equality]
