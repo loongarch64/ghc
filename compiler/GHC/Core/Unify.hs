@@ -800,14 +800,14 @@ see Note [Non-trivial definitional equality] in GHC.Core.TyCo.Rep
 
 Unlike the "impure unifiers" in the typechecker (the eager unifier in
 GHC.Tc.Utils.Unify, and the constraint solver itself in GHC.Tc.Solver.Canonical), the pure
-unifier It does /not/ work up to ~.
+unifier does /not/ work up to ~.
 
 The algorithm implemented here is rather delicate, and we depend on it
 to uphold certain properties. This is a summary of these required
 properties.
 
 Notation:
- θ,φ    substitutions
+ θ,φ  substitutions
  ξ    type-function-free types
  τ,σ  other types
  τ♭   type τ, flattened

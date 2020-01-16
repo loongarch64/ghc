@@ -166,10 +166,10 @@ data Type
   | CastTy
         Type
         KindCoercion  -- ^ A kind cast. The coercion is always nominal.
-                      -- INVARIANT: The cast is never reflexive
-                      -- INVARIANT: The Type is not a CastTy (use TransCo instead)
-                      -- INVARIANT: The Type is not a ForAllTy over a type variable
-                      -- See Note [Respecting definitional equality] \(EQ2), (EQ3), (EQ4)
+                      -- INVARIANT: The cast is never reflexive \(EQ2)
+                      -- INVARIANT: The Type is not a CastTy (use TransCo instead) \(EQ3)
+                      -- INVARIANT: The Type is not a ForAllTy over a tyvar \(EQ4)
+                      -- See Note [Respecting definitional equality]
 
   | CoercionTy
         Coercion    -- ^ Injection of a Coercion into a type
@@ -301,6 +301,24 @@ When treated as a user type,
 
 In a FunTy { ft_af = InvisArg }, the argument type is always
 a Predicate type.
+
+Note [Weird typing rule for ForAllTy]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Here is the typing rule for ForAllTy:
+
+tyvar : Type
+inner : TYPE r
+tyvar does not occur in r
+------------------------------------
+ForAllTy (Bndr tyvar vis) inner : TYPE r
+
+inner : TYPE r
+------------------------------------
+ForAllTy (Bndr covar vis) inner : Type
+
+Note that when inside the binder is a tyvar, neither the inner type nor for
+ForAllTy itself have to have kind *! But, it means that we should push any kind
+casts through the ForAllTy. The only trouble is avoiding capture.
 
 Note [Constraints in kinds]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -452,7 +470,7 @@ casting. The same is true of expressions of type σ. So in some sense, τ and σ
 are interchangeable.
 
 But let's be more precise. If we examine the typing rules of FC (say, those in
-https://cs.brynmawr.edu/~rae/papers/2015/equalities/equalities.pdf)
+https://richarde.dev/papers/2015/equalities/equalities.pdf)
 there are several places where the same metavariable is used in two different
 premises to a rule. (For example, see Ty_App.) There is an implicit equality
 check here. What definition of equality should we use? By convention, we use
@@ -470,7 +488,7 @@ equality check, can use any homogeneous relation that is smaller than ~, as
 those rules must also be admissible.
 
 A more drawn out argument around all of this is presented in Section 7.2 of
-Richard E's thesis (http://cs.brynmawr.edu/~rae/papers/2016/thesis/eisenberg-thesis.pdf).
+Richard E's thesis (http://richarde.dev/papers/2016/thesis/eisenberg-thesis.pdf).
 
 What would go wrong if we insisted on the casts matching? See the beginning of
 Section 8 in the unpublished paper above. Theoretically, nothing at all goes
@@ -482,8 +500,8 @@ then we couldn't discard -- the output of kind-checking would be enormous,
 and we would need enormous casts with lots of CoherenceCo's to straighten
 them out.
 
-Would anything go wrong if eqType respected type families? No, not at all. But
-that makes eqType rather hard to implement.
+Would anything go wrong if eqType looked through type families? No, not at
+all. But that makes eqType rather hard to implement.
 
 Thus, the guideline for eqType is that it should be the largest
 easy-to-implement relation that is still smaller than ~ and homogeneous. The
@@ -496,6 +514,23 @@ Another helpful principle with eqType is this:
 
 This principle also tells us that eqType must relate only types with the
 same kinds.
+
+Interestingly, it must be the case that the free variables of t1 and t2
+might be different, even if t1 `eqType` t2. A simple example of this is
+if we have both cv1 :: k1 ~ k2 and cv2 :: k1 ~ k2 in the environment.
+Then t1 = t |> cv1 and t2 = t |> cv2 are eqType; yet cv1 is in the free
+vars of t1 and cv2 is in the free vars of t2. Unless we choose to implement
+eqType to be just α-equivalence, this wrinkle around free variables
+remains.
+
+Yet not all is lost: we can say that any two equal types share the same
+*relevant* free variables. Here, a relevant variable is a shallow
+free variable (see Note [Shallow and deep free variables] in GHC.Core.TyCo.FVs)
+that does not appear within a coercion. Note that type variables can
+appear within coercions (in, say, a Refl node), but that coercion variables
+cannot appear outside a coercion. We do not (yet) have a function to
+extract relevant free variables, but it would not be hard to write if
+the need arises.
 
 Besides eqType, another equality relation that upholds the (EQ) property above
 is /typechecker equality/, which is implemented as
@@ -525,7 +560,7 @@ to differ, leading to a contradiction. Thus, co is reflexive.
 
 Accordingly, by eliminating reflexive casts, splitTyConApp need not worry
 about outermost casts to uphold (EQ). Eliminating reflexive casts is done
-in mkCastTy.
+in mkCastTy. This is (EQ1) below.
 
 Unforunately, that's not the end of the story. Consider comparing
   (T a b c)      =?       (T a b |> (co -> <Type>)) (c |> co)
@@ -548,6 +583,12 @@ our (EQ) property.
 
 In order to detect reflexive casts reliably, we must make sure not
 to have nested casts: we update (t |> co1 |> co2) to (t |> (co1 `TransCo` co2)).
+This is (EQ2) below.
+
+Finally, see Note [Weird typing rule for ForAllTy], which says that the kind
+of a ForAllTy over a tyvar is the same as the kind of the inner type. We thus
+push casts down through ForAllTys, giving us a canonical place to put that
+cast.
 
 One other troublesome case is ForAllTy. See Note [Weird typing rule for ForAllTy].
 The kind of the body is the same as the kind of the ForAllTy. Accordingly,

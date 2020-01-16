@@ -625,6 +625,10 @@ EQUAL TO, but we'd need to think carefully about
 But in fact (GivenInv) is automatically true, so we're adhering to
 it for now.  See #18929.
 
+* If a tyvar tv has level n, then the levels of all variables free
+  in tv's kind are <= n. Consequence: if tv is untouchable, so are
+  all variables in tv's kind.
+
 Note [WantedInv]
 ~~~~~~~~~~~~~~~~
 Why is WantedInv important?  Consider this implication, where
