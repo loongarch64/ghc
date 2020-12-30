@@ -3689,7 +3689,7 @@ happyDoAction i tk st
           | otherwise = indexShortOffAddr happyDefActions st
 
 indexShortOffAddr (HappyA# arr) off =
-        Happy_GHC_Exts.narrow16Int# i
+        Happy_GHC_Exts.int16ToInt# (Happy_GHC_Exts.intToInt16# i)
   where
         i = Happy_GHC_Exts.word2Int# (Happy_GHC_Exts.or# (Happy_GHC_Exts.uncheckedShiftL# high 8#) low)
         high = Happy_GHC_Exts.int2Word# (Happy_GHC_Exts.ord# (Happy_GHC_Exts.indexCharOffAddr# arr (off' Happy_GHC_Exts.+# 1#)))

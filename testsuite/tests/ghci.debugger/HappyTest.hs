@@ -345,7 +345,7 @@ happyDoAction i tk st
 
 
 indexShortOffAddr (HappyA# arr) off =
-	narrow16Int# i
+	int16ToInt# (intToInt16# i)
   where
 	i = word2Int# ((high `uncheckedShiftL#` 8#) `or#` low)
 	high = int2Word# (ord# (indexCharOffAddr# arr (off' +# 1#)))
