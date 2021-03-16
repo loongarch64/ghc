@@ -481,3 +481,8 @@ test ('T20049',
       [ collect_compiler_stats('bytes allocated',2) ],
       compile,
       [''])
+
+test ('T15703',
+      [ collect_compiler_stats('bytes allocated',2) ],
+      multimod_compile,
+      ['T15703', '-v0 -O'])
