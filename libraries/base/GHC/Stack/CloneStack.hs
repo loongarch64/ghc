@@ -1,5 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE MagicHash        #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE UnliftedFFITypes#-}
@@ -11,15 +11,21 @@
 -- @since 2.16.0.0
 module GHC.Stack.CloneStack (
   StackSnapshot(..),
+  StackEntry(..),
   cloneMyStack,
-  cloneThreadStack
+  cloneThreadStack,
+  decode
   ) where
 
-import GHC.Prim (StackSnapshot#, cloneMyStack#, ThreadId#)
 import Control.Concurrent.MVar
+import Control.Monad (forM)
+import Data.Maybe (catMaybes)
+import Foreign
 import GHC.Conc.Sync
-import GHC.Stable
-import GHC.IO (IO(..))
+import GHC.Exts (Int (I#), RealWorld)
+import GHC.IO (IO (..))
+import GHC.Prim (StackSnapshot#, cloneMyStack#, ThreadId#, MutableArray#, readArray#, sizeofMutableArray#)
+import GHC.Stack.CCS (InfoProv (..), InfoProvEnt, ipeProv, peekInfoProv)
 
 -- | A frozen snapshot of the state of an execution stack.
 --
@@ -130,6 +136,19 @@ function that dispatches messages is `executeMessage`. From there
 (`msg->mvar`).
 -}
 
+{-
+Note [Stack Decoding]
+~~~~~~~~~~~~~~~~~~~~~
+A cloned stack is decoded (unwound) by looking up the Info Table Provenance
+Entries (IPE) for every stack frame with `lookupIPE` in the RTS.
+
+The relevant notes are:
+  - Note [Mapping Info Tables to Source Positions]
+  - Note [Stacktraces from Info Table Provenance Entries (IPE based stack unwinding)]
+
+The IPEs contain source locations and are here pulled from the RTS/C world into Haskell.
+-}
+
 -- | Clone the stack of the executing thread
 --
 -- @since 2.16.0.0
@@ -152,3 +171,46 @@ cloneThreadStack (ThreadId tid#) = do
   sendCloneStackMessage tid# ptr
   freeStablePtr ptr
   takeMVar resultVar
+
+foreign import ccall "decodeClonedStack" decodeClonedStack :: StackSnapshot# -> MutableArray# RealWorld (Ptr InfoProvEnt)
+
+-- | Represetation for the source location where a return frame was pushed on the stack.
+-- This happens every time when a @case ... of@ scrutinee is evaluated.
+data StackEntry = StackEntry
+  { functionName :: String,
+    moduleName :: String,
+    srcLoc :: String,
+    closureType :: Word
+  }
+  deriving (Show, Eq)
+
+-- | Decode a 'StackSnapshot' to a stacktrace (a list of 'StackEntry').
+-- The stacktrace is created from return frames with according 'InfoProvEnt'
+-- entries. To generate them, use the GHC flag @-finfo-table-map@. If there are
+-- no 'InfoProv' entries, an empty list is returned.
+--
+-- @since 2.16.0.0
+decode :: StackSnapshot -> IO [StackEntry]
+decode (StackSnapshot stack) =
+  let array = decodeClonedStack stack
+      arraySize = I# (sizeofMutableArray# array)
+   in do
+        result <- forM [0 .. arraySize - 1] $ \(I# i) -> do
+          ipe <- IO $ readArray# array i
+          if ipe == nullPtr
+            then pure Nothing
+            else do
+              infoProv <- (peekInfoProv . ipeProv) ipe
+              pure $ Just (toStackEntry infoProv)
+
+        return $ catMaybes result
+  where
+    toStackEntry :: InfoProv -> StackEntry
+    toStackEntry infoProv =
+      StackEntry
+        { functionName = ipLabel infoProv,
+          moduleName = ipMod infoProv,
+          srcLoc = ipLoc infoProv,
+          -- read looks dangerous, be we can trust that the closure type is always there.
+          closureType = read . ipDesc $ infoProv
+        }
