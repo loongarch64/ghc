@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- | 'RoughMap' is an approximate finite map data structure keyed on
 -- @['RoughMatchTc']@. This is useful when keying maps on lists of 'Type's
@@ -31,9 +32,7 @@ import GHC.Utils.Outputable
 import GHC.Utils.Panic
 import GHC.Types.Name
 import GHC.Types.Name.Env
-import GHC.Types.Unique.FM (NonDetUniqFM(..))
 
-import Data.Monoid
 import Data.Data (Data)
 
 {-
@@ -68,21 +67,23 @@ typeToRoughMatchTc ty
 -- insert [UnknownTc] 2
 -- lookup [UnknownTc] == [1,2]
 data RoughMap a = RM { rm_empty   :: [a]
-                     , rm_known   :: !(NameEnv (RoughMap a))
+                     , rm_known   :: !(DNameEnv (RoughMap a))
+                        -- See Note [InstEnv determinism] in GHC.Core.InstEnv
                      , rm_unknown :: !(RoughMap a) }
                 | RMEmpty -- an optimised (finite) form of emptyRM
 
 emptyRM :: RoughMap a
 emptyRM = RMEmpty
 
+-- | Deterministic.
 lookupRM :: [RoughMatchTc] -> RoughMap a -> [a]
 lookupRM _                  RMEmpty = []
 lookupRM []                 rm      = elemsRM rm
-lookupRM (KnownTc tc : tcs) rm      = maybe [] (lookupRM tcs) (lookupNameEnv (rm_known rm) tc)
+lookupRM (KnownTc tc : tcs) rm      = maybe [] (lookupRM tcs) (lookupDNameEnv (rm_known rm) tc)
                                       ++ lookupRM tcs (rm_unknown rm)
                                       ++ rm_empty rm
 lookupRM (OtherTc : tcs)    rm      = [ x
-                                      | m <- nameEnvElts (rm_known rm)
+                                      | m <- eltsDNameEnv (rm_known rm)
                                       , x <- lookupRM tcs m ]
                                       ++ lookupRM tcs (rm_unknown rm)
                                       ++ rm_empty rm
@@ -105,12 +106,12 @@ applications. This allows efficient (yet approximate) instance look-up.
 insertRM :: [RoughMatchTc] -> a -> RoughMap a -> RoughMap a
 insertRM k v RMEmpty =
     insertRM k v $ RM { rm_empty = []
-                      , rm_known = emptyNameEnv
+                      , rm_known = emptyDNameEnv
                       , rm_unknown = emptyRM }
 insertRM [] v rm@(RM {}) =
     rm { rm_empty = v : rm_empty rm }
 insertRM (KnownTc k : ks) v rm@(RM {}) =
-    rm { rm_known = alterNameEnv f (rm_known rm) k }
+    rm { rm_known = alterDNameEnv f (rm_known rm) k }
   where
     f Nothing  = Just $ insertRM ks v emptyRM
     f (Just m) = Just $ insertRM ks v m
@@ -120,21 +121,49 @@ insertRM (OtherTc : ks) v rm@(RM {}) =
 filterRM :: (a -> Bool) -> RoughMap a -> RoughMap a
 filterRM _ RMEmpty = RMEmpty
 filterRM pred rm = norm $ RM { rm_empty = filter pred (rm_empty rm)
-                             , rm_known = mapNameEnv (filterRM pred) (rm_known rm)
+                             , rm_known = mapDNameEnv (filterRM pred) (rm_known rm)
                              , rm_unknown = filterRM pred (rm_unknown rm)
                              }
   where
     norm RMEmpty = RMEmpty
     norm (RM [] known RMEmpty)
-      | isEmptyNameEnv known = RMEmpty
+      | isEmptyDNameEnv known = RMEmpty
     norm rm = rm
 
 elemsRM :: RoughMap a -> [a]
-elemsRM RMEmpty = []
-elemsRM rm      = rm_empty rm ++ concatMap elemsRM (nameEnvElts $ rm_known rm) ++ elemsRM (rm_unknown rm)
+elemsRM = foldRM (:) []
+
+foldRM :: (a -> b -> b) -> b -> RoughMap a -> b
+foldRM f = go
+  where
+    -- N.B. local worker ensures that the loop can be specialised to the fold
+    -- function.
+    go z RMEmpty = z
+    go z rm@(RM{}) =
+      foldr
+        f
+        (foldDNameEnv
+           (flip go)
+           (go z (rm_unknown rm))
+           (rm_known rm)
+        )
+        (rm_empty rm)
+
+nonDetStrictFoldRM :: (b -> a -> b) -> b -> RoughMap a -> b
+nonDetStrictFoldRM f = go
+  where
+    -- N.B. local worker ensures that the loop can be specialised to the fold
+    -- function.
+    go !z RMEmpty = z
+    go  z rm@(RM{}) =
+      foldl'
+        f
+        (nonDetStrictFoldDNameEnv
+           (flip go)
+           (go z (rm_unknown rm))
+           (rm_known rm)
+        )
+        (rm_empty rm)
 
 sizeRM :: RoughMap a -> Int
-sizeRM RMEmpty = 0
-sizeRM rm      = length (rm_empty rm)
-                 + getSum (foldMap (Sum . sizeRM) (NonDetUniqFM $ rm_known rm))
-                 + sizeRM (rm_unknown rm)
+sizeRM = nonDetStrictFoldRM (\acc _ -> acc + 1) 0
