@@ -375,3 +375,5 @@ test('T20112',  normal, multimod_compile, ['T20112', '-O -v0 -g1'])
 test('T20200', normal, compile, [''])
 test('T20200a', normal, compile, ['-O2'])
 test('T20200b', normal, compile, ['-O2'])
+test('T19790',  normal, compile, ['-O -ddump-rule-firings'])
+
