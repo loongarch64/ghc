@@ -111,9 +111,27 @@ lookupRM' (OtherTc : tcs)    rm      = unionManyBags
 {-
 Note [RoughMap]
 ~~~~~~~~~~~~~~~
-RoughMap is a finite map keyed on the rough "shape" of a list of type
-applications. This allows efficient (yet approximate) instance look-up.
+A RoughMap is semantically a list of (key,value) pairs, where
+   key :: [RoughMatchTc]
+So, writing # for `OtherTc`, and Int for `KnownTc "Int"`, we might have
+    [ ([#, Int, Maybe, #, Int], v1)
+    , ([Int, #, List], v2 ]
 
+We lookup a key of type [RoughMatchTc], and return the list of all values whose
+keys "match", where matching means:
+  * OtherTc matches anything
+  * `KnownTc n1` matches OtherTc, or `KnownTc n2` if n1=n2
+  * If the lists are of different length, extend the shorter with OtherTc
+
+Given the above map, here are the results of some lookups:
+   Lookup key       Result
+   -------------------------
+   [Int, Int]       [v1,v2]
+   [Int,Int,List]   [v2]
+   [Bool]           []
+
+The idea is that we can use a `RoughMap` as a pre-filter, to produce a
+short-list of candidates to examine more closely.
 -}
 
     -- TODO: Including rm_empty due to Note [Eta reduction for data families]
