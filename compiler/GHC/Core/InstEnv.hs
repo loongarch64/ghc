@@ -14,12 +14,13 @@ module GHC.Core.InstEnv (
         OverlapFlag(..), OverlapMode(..), setOverlapModeMaybe,
         ClsInst(..), DFunInstType, pprInstance, pprInstanceHdr, pprInstances,
         instanceHead, instanceSig, mkLocalInstance, mkImportedInstance,
-        instanceDFunId, updateClsInstDFun,
+        instanceDFunId, updateClsInstDFuns,
         fuzzyClsInstCmp, orphNamesOfClsInst,
 
         InstEnvs(..), VisibleOrphanModules, InstEnv,
-        emptyInstEnv, extendInstEnv,
-        deleteFromInstEnv, deleteDFunFromInstEnv,
+        mkInstEnv, emptyInstEnv, unionInstEnv, extendInstEnv,
+        filterInstEnv, deleteFromInstEnv, deleteDFunFromInstEnv,
+        anyInstEnv,
         identicalClsInstHead,
         extendInstEnvList, lookupUniqueInstEnv, lookupInstEnv, instEnvElts, instEnvClasses,
         memberInstEnv,
@@ -194,6 +195,10 @@ instanceDFunId = is_dfun
 updateClsInstDFun :: (DFunId -> DFunId) -> ClsInst -> ClsInst
 updateClsInstDFun tidy_dfun ispec
   = ispec { is_dfun = tidy_dfun (is_dfun ispec) }
+
+updateClsInstDFuns :: (DFunId -> DFunId) -> InstEnv -> InstEnv
+updateClsInstDFuns tidy_dfun (InstEnv rm)
+  = InstEnv $ fmap (updateClsInstDFun tidy_dfun) rm
 
 instance NamedThing ClsInst where
    getName ispec = getName (is_dfun ispec)
@@ -418,6 +423,9 @@ type VisibleOrphanModules = ModuleSet
 emptyInstEnv :: InstEnv
 emptyInstEnv = InstEnv emptyRM
 
+mkInstEnv :: [ClsInst] -> InstEnv
+mkInstEnv = extendInstEnvList emptyInstEnv
+
 instEnvElts :: InstEnv -> [ClsInst]
 instEnvElts (InstEnv rm) = elemsRM rm
   -- See Note [InstEnv determinism]
@@ -459,12 +467,24 @@ memberInstEnv (InstEnv rm) ins_item@(ClsInst { is_tcs = tcs } ) =
   identicalDFunType cls1 cls2 =
     eqType (varType (is_dfun cls1)) (varType (is_dfun cls2))
 
+-- | Makes no particular effort to detect conflicts.
+unionInstEnv :: InstEnv -> InstEnv -> InstEnv
+unionInstEnv (InstEnv a) (InstEnv b) = InstEnv (a `unionRM` b)
+
 extendInstEnvList :: InstEnv -> [ClsInst] -> InstEnv
 extendInstEnvList inst_env ispecs = foldl' extendInstEnv inst_env ispecs
 
 extendInstEnv :: InstEnv -> ClsInst -> InstEnv
 extendInstEnv (InstEnv rm) ins_item@(ClsInst { is_tcs = tcs })
   = InstEnv $ insertRM tcs ins_item rm
+
+filterInstEnv :: (ClsInst -> Bool) -> InstEnv -> InstEnv
+filterInstEnv pred (InstEnv rm)
+  = InstEnv $ filterRM pred rm
+
+anyInstEnv :: (ClsInst -> Bool) -> InstEnv -> Bool
+anyInstEnv pred (InstEnv rm)
+  = foldRM (\x rest -> pred x || rest) False rm
 
 deleteFromInstEnv :: InstEnv -> ClsInst -> InstEnv
 deleteFromInstEnv (InstEnv rm) ins_item@(ClsInst { is_tcs = tcs })

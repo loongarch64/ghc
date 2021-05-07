@@ -281,7 +281,7 @@ mkIface_ hsc_env
           -- See Note [Deterministic UniqFM] in GHC.Types.Unique.DFM for more details.
         warns       = src_warns
         iface_rules = map coreRuleToIfaceRule rules
-        iface_insts = map instanceToIfaceInst $ fixSafeInstances safe_mode insts
+        iface_insts = map instanceToIfaceInst $ fixSafeInstances safe_mode (instEnvElts insts)
         iface_fam_insts = map famInstToIfaceFamInst fam_insts
         trust_info  = setSafeMode safe_mode
         annotations = map mkIfaceAnnotation anns

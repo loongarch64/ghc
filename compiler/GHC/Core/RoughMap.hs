@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE BangPatterns #-}
 
 -- | 'RoughMap' is an approximate finite map data structure keyed on
@@ -21,6 +22,8 @@ module GHC.Core.RoughMap
   , filterMatchingRM
   , elemsRM
   , sizeRM
+  , foldRM
+  , unionRM
   ) where
 
 #include "HsVersions.h"
@@ -84,6 +87,7 @@ data RoughMap a = RM { rm_empty   :: Bag a
                      , rm_unknown :: !(RoughMap a) }
                 | RMEmpty -- an optimised (finite) form of emptyRM
                           -- invariant: Empty RoughMaps are always represented with RMEmpty
+                deriving (Functor)
 
 emptyRM :: RoughMap a
 emptyRM = RMEmpty
@@ -108,6 +112,15 @@ lookupRM' (OtherTc : tcs)    rm      = unionManyBags
                                        , lookupRM' tcs (rm_unknown rm)
                                        , rm_empty rm
                                        ]
+
+unionRM :: RoughMap a -> RoughMap a -> RoughMap a
+unionRM RMEmpty a = a
+unionRM a RMEmpty = a
+unionRM a b =
+  RM { rm_empty = rm_empty a `unionBags` rm_empty b
+     , rm_known = plusNameEnv_C unionRM (rm_known a) (rm_known b)
+     , rm_unknown = rm_unknown a `unionRM` rm_unknown b
+     }
 
 {-
 Note [RoughMap]

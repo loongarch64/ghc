@@ -17,7 +17,7 @@ module GHC.Core.FamInstEnv (
 
         -- * Family instance environment
         FamInstEnvs, FamInstEnv, emptyFamInstEnv, emptyFamInstEnvs,
-        extendFamInstEnv, extendFamInstEnvList,
+        unionFamInstEnv, extendFamInstEnv, extendFamInstEnvList,
         famInstEnvElts, famInstEnvSize, familyInstances,
 
         -- * CoAxioms
@@ -396,6 +396,11 @@ familyInstances (pkg_fie, home_fie) fam
   where
     get :: FamInstEnv -> [FamInst]
     get (FamIE env) = lookupRM [KnownTc (tyConName fam)] env
+
+
+-- | Makes no particular effort to detect conflicts.
+unionFamInstEnv :: FamInstEnv -> FamInstEnv -> FamInstEnv
+unionFamInstEnv (FamIE a) (FamIE b) = FamIE (a `unionRM` b)
 
 extendFamInstEnvList :: FamInstEnv -> [FamInst] -> FamInstEnv
 extendFamInstEnvList inst_env fis = foldl' extendFamInstEnv inst_env fis
