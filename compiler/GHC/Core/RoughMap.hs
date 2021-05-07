@@ -78,7 +78,7 @@ typeToRoughMatchTc ty
 -- insert [OtherTc] 2
 -- lookup [OtherTc] == [1,2]
 -- @
-data RoughMap a = RM { rm_empty   :: [a]
+data RoughMap a = RM { rm_empty   :: Bag a
                      , rm_known   :: !(NameEnv (RoughMap a))
                         -- See Note [InstEnv determinism] in GHC.Core.InstEnv
                      , rm_unknown :: !(RoughMap a) }
@@ -101,12 +101,12 @@ lookupRM' []                 rm      = listToBag $ elemsRM rm
 lookupRM' (KnownTc tc : tcs) rm      = unionManyBags
                                        [ maybe mempty (lookupRM' tcs) (lookupNameEnv (rm_known rm) tc)
                                        , lookupRM' tcs (rm_unknown rm)
-                                       , listToBag $ rm_empty rm
+                                       , rm_empty rm
                                        ]
 lookupRM' (OtherTc : tcs)    rm      = unionManyBags
                                        [ foldMap (lookupRM' tcs) (NonDetUniqFM $ rm_known rm)
                                        , lookupRM' tcs (rm_unknown rm)
-                                       , listToBag $ rm_empty rm
+                                       , rm_empty rm
                                        ]
 
 {-
@@ -144,11 +144,11 @@ short-list of candidates to examine more closely.
 
 insertRM :: [RoughMatchTc] -> a -> RoughMap a -> RoughMap a
 insertRM k v RMEmpty =
-    insertRM k v $ RM { rm_empty = []
+    insertRM k v $ RM { rm_empty = emptyBag
                       , rm_known = emptyNameEnv
                       , rm_unknown = emptyRM }
 insertRM [] v rm@(RM {}) =
-    rm { rm_empty = v : rm_empty rm }
+    rm { rm_empty = v `consBag` rm_empty rm }
 insertRM (KnownTc k : ks) v rm@(RM {}) =
     rm { rm_known = alterNameEnv f (rm_known rm) k }
   where
@@ -161,7 +161,7 @@ filterRM :: (a -> Bool) -> RoughMap a -> RoughMap a
 filterRM _ RMEmpty = RMEmpty
 filterRM pred rm =
     normalise $ RM {
-      rm_empty = filter pred (rm_empty rm),
+      rm_empty = filterBag pred (rm_empty rm),
       rm_known = mapNameEnv (filterRM pred) (rm_known rm),
       rm_unknown = filterRM pred (rm_unknown rm)
     }
@@ -170,8 +170,9 @@ filterRM pred rm =
 -- 'RMEmpty's. Necessary after removing items.
 normalise :: RoughMap a -> RoughMap a
 normalise RMEmpty = RMEmpty
-normalise (RM [] known RMEmpty)
-  | isEmptyNameEnv known = RMEmpty
+normalise (RM empty known RMEmpty)
+  | isEmptyBag empty
+  , isEmptyNameEnv known = RMEmpty
 normalise rm = rm
 
 -- | Filter all elements that might match a particular key with the given
@@ -181,13 +182,13 @@ filterMatchingRM _    _  RMEmpty = RMEmpty
 filterMatchingRM pred [] rm      = filterRM pred rm
 filterMatchingRM pred (KnownTc tc : tcs) rm =
     normalise $ RM {
-      rm_empty = filter pred (rm_empty rm),
+      rm_empty = filterBag pred (rm_empty rm),
       rm_known = alterNameEnv (join . fmap (dropEmpty . filterMatchingRM pred tcs)) (rm_known rm) tc,
       rm_unknown = filterMatchingRM pred tcs (rm_unknown rm)
     }
 filterMatchingRM pred (OtherTc : tcs) rm =
     normalise $ RM {
-      rm_empty = filter pred (rm_empty rm),
+      rm_empty = filterBag pred (rm_empty rm),
       rm_known = mapNameEnv (filterMatchingRM pred tcs) (rm_known rm),
       rm_unknown = filterMatchingRM pred tcs (rm_unknown rm)
     }
