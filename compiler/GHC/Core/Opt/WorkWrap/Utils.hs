@@ -978,6 +978,7 @@ mkAbsentFiller opts arg
   -- wrong (like we were in #11126). See (1) in Note [Absent fillers]
   | not (isUnliftedType arg_ty)
   , not is_strict, not is_evald -- See (2) in Note [Absent fillers]
+  , False -- TODO: Remove. This is just a dirty hack around #19766
   = Just (mkAbsentErrorApp arg_ty msg)
 
   -- The default case for mono rep: Bind `RUBBISH[rr] arg_ty`
