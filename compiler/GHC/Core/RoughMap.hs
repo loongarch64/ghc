@@ -102,12 +102,12 @@ lookupRM tcs rm = bagToList (lookupRM' tcs rm)
 lookupRM' :: [RoughMatchTc] -> RoughMap a -> Bag a
 lookupRM' _                  RMEmpty = mempty
 lookupRM' []                 rm      = listToBag $ elemsRM rm
-lookupRM' (KnownTc tc : tcs) rm      = unionManyBags
+lookupRM' (KnownTc tc : tcs) rm      = foldl' unionBags emptyBag
                                        [ maybe mempty (lookupRM' tcs) (lookupNameEnv (rm_known rm) tc)
                                        , lookupRM' tcs (rm_unknown rm)
                                        , rm_empty rm
                                        ]
-lookupRM' (OtherTc : tcs)    rm      = unionManyBags
+lookupRM' (OtherTc : tcs)    rm      = foldl' unionBags emptyBag
                                        [ foldMap (lookupRM' tcs) (NonDetUniqFM $ rm_known rm)
                                        , lookupRM' tcs (rm_unknown rm)
                                        , rm_empty rm
