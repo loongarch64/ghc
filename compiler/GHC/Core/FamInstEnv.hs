@@ -360,17 +360,17 @@ See Note [Deterministic UniqFM].
 type FamInstEnvs = (FamInstEnv, FamInstEnv)
      -- External package inst-env, Home-package inst-env
 
-newtype FamInstEnv
-  = FamIE (RoughMap FamInst)
+data FamInstEnv
+  = FamIE !Int !(RoughMap FamInst)
      -- See Note [FamInstEnv]
      -- See Note [FamInstEnv determinism]
 
 
 instance Outputable FamInstEnv where
-  ppr (FamIE fs) = text "FamIE" <+> vcat (map ppr $ elemsRM fs)
+  ppr (FamIE _ fs) = text "FamIE" <+> vcat (map ppr $ elemsRM fs)
 
 famInstEnvSize :: FamInstEnv -> Int
-famInstEnvSize (FamIE rm) = sizeRM rm
+famInstEnvSize (FamIE sz rm) = sz
 
 -- | Create a 'FamInstEnv' from 'Name' indices.
 -- INVARIANTS:
@@ -381,10 +381,10 @@ emptyFamInstEnvs :: (FamInstEnv, FamInstEnv)
 emptyFamInstEnvs = (emptyFamInstEnv, emptyFamInstEnv)
 
 emptyFamInstEnv :: FamInstEnv
-emptyFamInstEnv = FamIE emptyRM
+emptyFamInstEnv = FamIE 0 emptyRM
 
 famInstEnvElts :: FamInstEnv -> [FamInst]
-famInstEnvElts (FamIE rm) = elemsRM rm
+famInstEnvElts (FamIE _ rm) = elemsRM rm
   -- See Note [FamInstEnv determinism]
 
   -- It's OK to use nonDetStrictFoldUDFM here since we're just computing the
@@ -395,20 +395,20 @@ familyInstances (pkg_fie, home_fie) fam
   = get home_fie ++ get pkg_fie
   where
     get :: FamInstEnv -> [FamInst]
-    get (FamIE env) = lookupRM [KnownTc (tyConName fam)] env
+    get (FamIE _ env) = lookupRM [KnownTc (tyConName fam)] env
 
 
 -- | Makes no particular effort to detect conflicts.
 unionFamInstEnv :: FamInstEnv -> FamInstEnv -> FamInstEnv
-unionFamInstEnv (FamIE a) (FamIE b) = FamIE (a `unionRM` b)
+unionFamInstEnv (FamIE sa a) (FamIE sb b) = FamIE (sa + sb) (a `unionRM` b)
 
 extendFamInstEnvList :: FamInstEnv -> [FamInst] -> FamInstEnv
 extendFamInstEnvList inst_env fis = foldl' extendFamInstEnv inst_env fis
 
 extendFamInstEnv :: FamInstEnv -> FamInst -> FamInstEnv
-extendFamInstEnv (FamIE inst_env)
+extendFamInstEnv (FamIE s inst_env)
                  ins_item@(FamInst {fi_fam = cls_nm})
-  = FamIE $ insertRM rough_tmpl ins_item inst_env
+  = FamIE (s+1) $ insertRM rough_tmpl ins_item inst_env
   where
     rough_tmpl = KnownTc cls_nm : fi_tcs ins_item
 
@@ -775,7 +775,7 @@ lookupFamInstEnvByTyCon :: FamInstEnvs -> TyCon -> [FamInst]
 lookupFamInstEnvByTyCon (pkg_ie, home_ie) fam_tc
   = get pkg_ie ++ get home_ie
   where
-    get (FamIE rm) = lookupRM [KnownTc (tyConName fam_tc)] rm
+    get (FamIE _ rm) = lookupRM [KnownTc (tyConName fam_tc)] rm
 
 -- | Look-up an instance for a type family applied to some types.
 lookupFamInstEnv
@@ -992,7 +992,7 @@ lookup_fam_inst_env'          -- The worker, local to this module
     -> FamInstEnv
     -> TyCon -> [Type]        -- What we are looking for
     -> [FamInstMatch]
-lookup_fam_inst_env' match_fun (FamIE ie) fam match_tys
+lookup_fam_inst_env' match_fun (FamIE _ ie) fam match_tys
   | isOpenFamilyTyCon fam
   , let xs = (lookupRM' rough_tmpl ie)   -- The common case
     -- Avoid doing any of the allocation below if there are no instances to look at.
