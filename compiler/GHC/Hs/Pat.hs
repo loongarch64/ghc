@@ -20,7 +20,7 @@
 -}
 
 module GHC.Hs.Pat (
-        Pat(..), LPat,
+        Pat(..), LPat, LamPat(..),
         EpAnnSumPat(..),
         ConPatTc (..),
         ConLikeP,
@@ -39,12 +39,12 @@ module GHC.Hs.Pat (
         isSimplePat,
         looksLazyPatBind,
         isBangedLPat,
-        gParPat, patNeedsParens, parenthesizePat,
+        gParPat, patNeedsParens, parenthesizePat, parenthesizeLamPat,
         isIrrefutableHsPat,
 
         collectEvVarsPat, collectEvVarsPats,
 
-        pprParendLPat, pprConArgs,
+        pprParendLPat, pprParendLamPat, pprConArgs,
         pprLPat
     ) where
 
@@ -267,6 +267,10 @@ instance OutputableBndrId p => Outputable (Pat (GhcPass p)) where
 instance (Outputable a, Outputable b) => Outputable (HsPatExpansion a b) where
   ppr (HsPatExpanded a b) = ifPprDebug (vcat [ppr a, ppr b]) (ppr a)
 
+instance OutputableBndrId p => Outputable (LamPat (GhcPass p)) where
+    ppr (LamVisPat lpat) = ppr (unLoc lpat)
+    ppr (LamInvisPat idp) = ppr idp
+
 pprLPat :: (OutputableBndrId p) => LPat (GhcPass p) -> SDoc
 pprLPat (L _ e) = pprPat e
 
@@ -281,6 +285,11 @@ pprPatBndr var
 pprParendLPat :: (OutputableBndrId p)
               => PprPrec -> LPat (GhcPass p) -> SDoc
 pprParendLPat p = pprParendPat p . unLoc
+
+pprParendLamPat :: (OutputableBndrId p)
+                => PprPrec -> LamPat (GhcPass p) -> SDoc
+pprParendLamPat p (LamVisPat pat)   = pprParendLPat p pat
+pprParendLamPat __ (LamInvisPat pat) = char '@' <> (ppr (unLoc pat))
 
 pprParendPat :: forall p. OutputableBndrId p
              => PprPrec
@@ -679,6 +688,13 @@ parenthesizePat :: IsPass p
 parenthesizePat p lpat@(L loc pat)
   | patNeedsParens p pat = L loc (gParPat lpat)
   | otherwise            = lpat
+
+parenthesizeLamPat :: IsPass p
+                   => PprPrec
+                   -> LamPat (GhcPass p)
+                   -> LamPat (GhcPass p)
+parenthesizeLamPat p (LamVisPat lpat) = LamVisPat (parenthesizePat p lpat)
+parenthesizeLamPat _ invis            = invis
 
 {-
 % Collect all EvVars from all constructor patterns

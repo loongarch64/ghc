@@ -57,6 +57,7 @@ import GHC.Tc.Types.Origin
 import GHC.Tc.Utils.TcType as TcType
 import GHC.Types.Id
 import GHC.Types.Id.Info
+import GHC.Types.Var (varMult)
 import GHC.Core.ConLike
 import GHC.Core.DataCon
 import GHC.Core.PatSyn
@@ -1027,9 +1028,9 @@ tcSynArgE orig sigma_ty syn_ty thing_inside
              , ( ( (result, arg_ty, res_ty, op_mult)
                  , res_wrapper )                     -- :: res_ty_out "->" res_ty
                , arg_wrapper1, [], arg_wrapper2 ) )  -- :: arg_ty "->" arg_ty_out
-               <- matchExpectedFunTys herald GenSigCtxt 1 (mkCheckExpType rho_ty) $
+               <- matchExpectedFunTys herald GenSigCtxt [] (mkCheckExpType rho_ty) $
                   \ [arg_ty] res_ty ->
-                  do { arg_tc_ty <- expTypeToType (scaledThing arg_ty)
+                  do { let arg_tc_ty = varType arg_ty
                      ; res_tc_ty <- expTypeToType res_ty
 
                          -- another nested arrow is too much for now,
@@ -1040,7 +1041,7 @@ tcSynArgE orig sigma_ty syn_ty thing_inside
                                   (text "Too many nested arrows in SyntaxOpType" $$
                                    pprCtOrigin orig)
 
-                     ; let arg_mult = scaledMult arg_ty
+                     ; let arg_mult = varMult arg_ty
                      ; tcSynArgA orig arg_tc_ty [] arg_shape $
                        \ arg_results arg_res_mults ->
                        tcSynArgE orig res_tc_ty res_shape $

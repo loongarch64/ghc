@@ -911,7 +911,7 @@ cvtClause ctxt (Clause ps body wheres)
         ; let pps = map (parenthesizePat appPrec) ps'
         ; g'  <- cvtGuard body
         ; ds' <- cvtLocalDecs (text "a where clause") wheres
-        ; returnLA $ Hs.Match noAnn ctxt pps (GRHSs noExtField g' ds') }
+        ; returnLA $ Hs.Match noAnn ctxt (LamVisPat <$> pps) (GRHSs noExtField g' ds') }
 
 cvtImplicitParamBind :: String -> TH.Exp -> CvtM (LIPBind GhcPs)
 cvtImplicitParamBind n e = do
@@ -962,7 +962,7 @@ cvtl e = wrapLA (cvt e)
                             ; th_origin <- getOrigin
                             ; return $ HsLam noExtField (mkMatchGroup th_origin
                                              (noLocA [mkSimpleMatch LambdaExpr
-                                             pats e']))}
+                                             (LamVisPat <$> pats) e']))}
     cvt (LamCaseE ms)  = do { ms' <- mapM (cvtMatch CaseAlt) ms
                             ; th_origin <- getOrigin
                             ; return $ HsLamCase noAnn
@@ -1223,7 +1223,7 @@ cvtMatch ctxt (TH.Match p body decs)
                      _                -> p'
         ; g' <- cvtGuard body
         ; decs' <- cvtLocalDecs (text "a where clause") decs
-        ; returnLA $ Hs.Match noAnn ctxt [lp] (GRHSs noExtField g' decs') }
+        ; returnLA $ Hs.Match noAnn ctxt [LamVisPat lp] (GRHSs noExtField g' decs') }
 
 cvtGuard :: TH.Body -> CvtM [LGRHS GhcPs (LHsExpr GhcPs)]
 cvtGuard (GuardedB pairs) = mapM cvtpair pairs

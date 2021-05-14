@@ -1271,7 +1271,11 @@ matchGroupArity (MG { mg_alts = alts })
   | L _ (alt1:_) <- alts = length (hsLMatchPats alt1)
   | otherwise        = panic "matchGroupArity"
 
-hsLMatchPats :: LMatch (GhcPass id) body -> [LPat (GhcPass id)]
+matchGroupLamPats :: MatchGroup (GhcPass id) body -> [LamPat (GhcPass id)]
+matchGroupLamPats (MG { mg_alts = (L _ (alt : _)) }) = hsLMatchPats alt
+matchGroupLamPats _ = panic []
+
+hsLMatchPats :: LMatch (GhcPass id) body -> [LamPat (GhcPass id)]
 hsLMatchPats (L _ (Match { m_pats = pats })) = pats
 
 type instance XCGRHSs (GhcPass _) _ = NoExtField
@@ -1311,7 +1315,7 @@ pprPatBind pat grhss
 pprMatch :: (OutputableBndrId idR, Outputable body)
          => Match (GhcPass idR) body -> SDoc
 pprMatch (Match { m_pats = pats, m_ctxt = ctxt, m_grhss = grhss })
-  = sep [ sep (herald : map (nest 2 . pprParendLPat appPrec) other_pats)
+  = sep [ sep (herald : map (nest 2 . pprParendLamPat appPrec) other_pats)
         , nest 2 (pprGRHSs ctxt grhss) ]
   where
     (herald, other_pats)
@@ -1331,9 +1335,9 @@ pprMatch (Match { m_pats = pats, m_ctxt = ctxt, m_grhss = grhss })
                         | null rest -> (pp_infix, [])           -- x &&& y = e
                         | otherwise -> (parens pp_infix, rest)  -- (x &&& y) z = e
                         where
-                          pp_infix = pprParendLPat opPrec p1
+                          pp_infix = pprParendLamPat opPrec p1
                                      <+> pprInfixOcc fun
-                                     <+> pprParendLPat opPrec p2
+                                     <+> pprParendLamPat opPrec p2
                      _ -> pprPanic "pprMatch" (ppr ctxt $$ ppr pats)
 
             LambdaExpr -> (char '\\', pats)

@@ -1669,7 +1669,7 @@ the choice in HsExpanded, but it seems simpler to consult the flag (again).
 -- Building representations of auxiliary structures like Match, Clause, Stmt,
 
 repMatchTup ::  LMatch GhcRn (LHsExpr GhcRn) -> MetaM (Core (M TH.Match))
-repMatchTup (L _ (Match { m_pats = [p]
+repMatchTup (L _ (Match { m_pats = [LamVisPat p]
                         , m_grhss = GRHSs _ guards wheres })) =
   do { ss1 <- mkGenSyms (collectPatBinders CollNoDictBinders p)
      ; addBinds ss1 $ do {
@@ -1684,9 +1684,9 @@ repMatchTup _ = panic "repMatchTup: case alt with more than one arg"
 repClauseTup ::  LMatch GhcRn (LHsExpr GhcRn) -> MetaM (Core (M TH.Clause))
 repClauseTup (L _ (Match { m_pats = ps
                          , m_grhss = GRHSs _ guards  wheres })) =
-  do { ss1 <- mkGenSyms (collectPatsBinders CollNoDictBinders ps)
+  do { ss1 <- mkGenSyms (collectLamPatsBinders CollNoDictBinders ps)
      ; addBinds ss1 $ do {
-       ps1 <- repLPs ps
+       ps1 <- repLPs (toLPats ps)
      ; (ss2,ds) <- repBinds wheres
      ; addBinds ss2 $ do {
        gs <- repGuards guards
@@ -2024,10 +2024,10 @@ repLambda :: LMatch GhcRn (LHsExpr GhcRn) -> MetaM (Core (M TH.Exp))
 repLambda (L _ (Match { m_pats = ps
                       , m_grhss = GRHSs _ [L _ (GRHS _ [] e)]
                                               (EmptyLocalBinds _) } ))
- = do { let bndrs = collectPatsBinders CollNoDictBinders ps ;
+ = do { let bndrs = collectLamPatsBinders CollNoDictBinders ps ;
       ; ss  <- mkGenSyms bndrs
       ; lam <- addBinds ss (
-                do { xs <- repLPs ps; body <- repLE e; repLam xs body })
+                do { xs <- repLPs (toLPats ps); body <- repLE e; repLam xs body })
       ; wrapGenSyms ss lam }
 
 repLambda (L _ m) = notHandled (ThGuardedLambdas m)

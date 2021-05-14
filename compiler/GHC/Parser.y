@@ -2783,7 +2783,7 @@ aexp    :: { ECP }
                                    unECP $2 >>= \ $2 ->
                                    mkHsNegAppPV (comb2A $1 $>) $2 [mj AnnMinus $1] }
 
-        | '\\' apats '->' exp
+        | '\\' lampats '->' exp
                    {  ECP $
                       unECP $4 >>= \ $4 ->
                       mkHsLamPV (comb2 $1 (reLoc $>)) (\cs -> mkMatchGroup FromSource
@@ -3239,7 +3239,7 @@ alt     :: { forall b. DisambECP b => PV (LMatch GhcPs (LocatedA b)) }
                             acsA (\cs -> sLL (reLoc $1) $>
                                            (Match { m_ext = (EpAnn (glAR $1) [] cs)
                                                   , m_ctxt = CaseAlt
-                                                  , m_pats = [$1]
+                                                  , m_pats = [LamVisPat $1]
                                                   , m_grhss = unLoc $2 }))}
 
 alt_rhs :: { forall b. DisambECP b => PV (Located (GRHSs GhcPs (LocatedA b))) }
@@ -3284,12 +3284,13 @@ bindpat :  exp            {% -- See Note [Parser-Validator Details] in GHC.Parse
                              checkPattern_details incompleteDoBlock
                                               (unECP $1) }
 
-apat   :: { LPat GhcPs }
-apat    : aexp                  {% (checkPattern <=< runPV) (unECP $1) }
+lampat   :: { LamPat GhcPs }
+lampat   : aexp                  {%  (return . LamVisPat <=< checkPattern <=< runPV) (unECP $1) }
+         | PREFIX_AT tyvar       {%  (return . LamInvisPat) $2 }
 
-apats  :: { [LPat GhcPs] }
-        : apat apats            { $1 : $2 }
-        | {- empty -}           { [] }
+lampats :: { [LamPat GhcPs] }
+         : lampat lampats            { $1 : $2 }
+         | {- empty -}               { [] }
 
 -----------------------------------------------------------------------------
 -- Statement sequences

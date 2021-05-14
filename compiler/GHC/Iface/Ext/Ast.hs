@@ -924,7 +924,7 @@ instance ( HiePass p
     Match{m_ctxt=mctx, m_pats = pats, m_grhss =  grhss } ->
       [ toHie mctx
       , let rhsScope = mkScope $ grhss_span grhss
-          in toHie $ patScopes Nothing rhsScope NoScope pats
+          in toHie $ patScopes Nothing rhsScope NoScope (toLPats pats)
       , toHie grhss
       ]
     where

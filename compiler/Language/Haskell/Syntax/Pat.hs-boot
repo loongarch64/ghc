@@ -9,5 +9,7 @@ import Language.Haskell.Syntax.Extension ( XRec )
 import Data.Kind
 
 type role Pat nominal
+type role LamPat nominal
 data Pat (i :: Type)
 type LPat i = XRec i (Pat i)
+data LamPat i

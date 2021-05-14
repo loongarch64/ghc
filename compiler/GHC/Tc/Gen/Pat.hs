@@ -18,7 +18,7 @@ module GHC.Tc.Gen.Pat
    , newLetBndr
    , LetBndrSpec(..)
    , tcCheckPat, tcCheckPat_O, tcInferPat
-   , tcPats
+   , tcLamPats
    , addDataConStupidTheta
    , badFieldCon
    , polyPatSig
@@ -97,11 +97,11 @@ tcLetPat sig_fn no_gen pat pat_ty thing_inside
        ; tc_lpat pat_ty penv pat thing_inside }
 
 -----------------
-tcPats :: HsMatchContext GhcRn
-       -> [LPat GhcRn]            -- Patterns,
-       -> [Scaled ExpSigmaType]         --   and their types
-       -> TcM a                  --   and the checker for the body
-       -> TcM ([LPat GhcTc], a)
+tcLamPats :: HsMatchContext GhcRn
+          -> [LamPat GhcRn]            -- Patterns,
+          -> [Var]                     --   and their types
+          -> TcM a                     --   and the checker for the body
+          -> TcM ([LamPat GhcTc], a)
 
 -- This is the externally-callable wrapper function
 -- Typecheck the patterns, extend the environment to bind the variables,
@@ -114,8 +114,8 @@ tcPats :: HsMatchContext GhcRn
 --   3. Check the body
 --   4. Check that no existentials escape
 
-tcPats ctxt pats pat_tys thing_inside
-  = tc_lpats pat_tys penv pats thing_inside
+tcLamPats ctxt pats pat_tys thing_inside
+  = tc_lampats pat_tys penv pats thing_inside
   where
     penv = PE { pe_lazy = False, pe_ctxt = LamPat ctxt, pe_orig = PatOrigin }
 
@@ -338,6 +338,15 @@ tc_lpat pat_ty penv (L span pat) thing_inside
                                           thing_inside
         ; return (L span pat', res) }
 
+tc_lampat :: Var
+          -> Checker (LamPat GhcRn) (LamPat GhcTc)
+tc_lampat var penv (LamVisPat pat) thing_inside
+  = do { (pat', res) <- tc_lpat (Scaled Many (Check (varType var))) penv pat thing_inside
+       ; return (LamVisPat pat', res) }
+tc_lampat var _ (LamInvisPat (L l name)) thing_inside
+  = do { res <- thing_inside
+       ; return (LamInvisPat (L l (mkTyVar name (varType var))), res) }
+
 tc_lpats :: [Scaled ExpSigmaType]
          -> Checker [LPat GhcRn] [LPat GhcTc]
 tc_lpats tys penv pats
@@ -345,6 +354,14 @@ tc_lpats tys penv pats
     tcMultiple (\ penv' (p,t) -> tc_lpat t penv' p)
                penv
                (zipEqual "tc_lpats" pats tys)
+
+tc_lampats :: [Var]
+           -> Checker [LamPat GhcRn] [LamPat GhcTc]
+tc_lampats tys penv pats
+  = assertPpr (equalLength pats tys) (ppr pats $$ ppr tys) $
+    tcMultiple (\ penv' (p,t) -> tc_lampat t penv' p)
+               penv
+               (zipEqual "tc_lampats" pats tys)
 
 --------------------
 -- See Note [Wrapper returned from tcSubMult] in GHC.Tc.Utils.Unify.

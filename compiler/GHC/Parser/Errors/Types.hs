@@ -134,6 +134,9 @@ data PsMessage
    -- | A lambda requires at least one parameter
    | PsErrEmptyLambda
 
+   -- | Type variable arguments after ordinary patterns are not allowed yet
+   | PsErrorIllegalTypeArguments
+
    -- | Underscores in literals without the extension enabled
    | PsErrNumUnderscores !NumUnderscoreReason
 

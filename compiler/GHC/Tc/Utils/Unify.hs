@@ -54,6 +54,7 @@ import GHC.Tc.Types.Evidence
 import GHC.Tc.Types.Constraint
 import GHC.Tc.Types.Origin
 import GHC.Types.Name( isSystemName )
+import GHC.Types.Id
 import GHC.Tc.Utils.Instantiate
 import GHC.Core.TyCon
 import GHC.Builtin.Types
@@ -73,6 +74,7 @@ import GHC.Exts      ( inline )
 import Control.Monad
 import Control.Arrow ( second )
 import qualified Data.Semigroup as S ( (<>) )
+import GHC.Data.FastString
 
 {- *********************************************************************
 *                                                                      *
@@ -286,45 +288,42 @@ passed in.
 matchExpectedFunTys :: forall a.
                        SDoc   -- See Note [Herald for matchExpectedFunTys]
                     -> UserTypeCtxt
-                    -> Arity
-                    -> ExpRhoType      -- Skolemised
-                    -> ([Scaled ExpSigmaType] -> ExpRhoType -> TcM a)
+                    -> [LamPat GhcRn]
+                    -> ExpSigmaType
+                    -> ([Var] -> ExpSigmaType -> TcM a)
                     -> TcM (HsWrapper, a)
 -- If    matchExpectedFunTys n ty = (_, wrap)
 -- then  wrap : (t1 -> ... -> tn -> ty_r) ~> ty,
 --   where [t1, ..., tn], ty_r are passed to the thing_inside
-matchExpectedFunTys herald ctx arity orig_ty thing_inside
+matchExpectedFunTys herald ctx lampats orig_ty thing_inside
   = case orig_ty of
-      Check ty -> go [] arity ty
-      _        -> defer [] arity orig_ty
+      Check ty -> go [] lampats ty
+      _        -> defer [] lampats orig_ty
   where
-    -- Skolemise any foralls /before/ the zero-arg case
-    -- so that we guarantee to return a rho-type
-    go acc_arg_tys n ty
-      | (tvs, theta, _) <- tcSplitSigmaTy ty
-      , not (null tvs && null theta)
-      = do { (wrap_gen, (wrap_res, result)) <- tcSkolemise ctx ty $ \ty' ->
-                                               go acc_arg_tys n ty'
-           ; return (wrap_gen <.> wrap_res, result) }
-
     -- No more args; do this /before/ tcView, so
     -- that we do not unnecessarily unwrap synonyms
-    go acc_arg_tys 0 rho_ty
-      = do { result <- thing_inside (reverse acc_arg_tys) (mkCheckExpType rho_ty)
+    go acc_arg_tys [] ty
+      = do { result <- thing_inside (reverse acc_arg_tys) (mkCheckExpType ty)
            ; return (idHsWrapper, result) }
 
-    go acc_arg_tys n ty
-      | Just ty' <- tcView ty = go acc_arg_tys n ty'
+    go acc_arg_tys lampats ty
+      | Just ty' <- tcView ty = go acc_arg_tys lampats ty'
 
-    go acc_arg_tys n (FunTy { ft_mult = mult, ft_af = af, ft_arg = arg_ty, ft_res = res_ty })
+    go vars (LamVisPat _ :pats) (FunTy { ft_mult = mult, ft_af = af, ft_arg = arg_ty, ft_res = res_ty })
       = assert (af == VisArg) $
-        do { (wrap_res, result) <- go ((Scaled mult $ mkCheckExpType arg_ty) : acc_arg_tys)
-                                      (n-1) res_ty
+        do { name <- newMetaTyVarName (fsLit "arg")
+           ; let var = mkLocalId name mult arg_ty
+           ; (wrap_res, result) <- go (var : vars) pats res_ty
            ; let fun_wrap = mkWpFun idHsWrapper wrap_res (Scaled mult arg_ty) res_ty doc
            ; return ( fun_wrap, result ) }
       where
         doc = text "When inferring the argument type of a function with type" <+>
               quotes (ppr orig_ty)
+
+    go vars (LamInvisPat _ : pats) (ForAllTy (Bndr var _) ty)
+      = do { (wrap_res, result) <- go (var : vars) pats ty
+           ; let fun_wrap = WpTyLam var
+           ; return ( fun_wrap <.> wrap_res, result )}
 
     go acc_arg_tys n ty@(TyVarTy tv)
       | isMetaTyVar tv
@@ -352,25 +351,23 @@ matchExpectedFunTys herald ctx arity orig_ty thing_inside
                           defer acc_arg_tys n (mkCheckExpType ty)
 
     ------------
-    defer :: [Scaled ExpSigmaType] -> Arity -> ExpRhoType -> TcM (HsWrapper, a)
-    defer acc_arg_tys n fun_ty
-      = do { more_arg_tys <- replicateM n (mkScaled <$> newFlexiTyVarTy multiplicityTy <*> newInferExpType)
+    defer :: [Var] -> [LamPat GhcRn] -> ExpSigmaType -> TcM (HsWrapper, a)
+    defer acc_arg_tys pats fun_ty
+      = do { more_arg_tys <- replicateM (length pats) newOpenFlexiTyVar
            ; res_ty       <- newInferExpType
            ; result       <- thing_inside (reverse acc_arg_tys ++ more_arg_tys) res_ty
-           ; more_arg_tys <- mapM (\(Scaled m t) -> Scaled m <$> readExpType t) more_arg_tys
+           ; let more_arg_tys' = map (\x -> Scaled Many (varType x)) more_arg_tys
            ; res_ty       <- readExpType res_ty
-           ; let unif_fun_ty = mkVisFunTys more_arg_tys res_ty
+           ; let unif_fun_ty = mkVisFunTys more_arg_tys' res_ty
            ; wrap <- tcSubType AppOrigin ctx unif_fun_ty fun_ty
                          -- Not a good origin at all :-(
            ; return (wrap, result) }
 
     ------------
-    mk_ctxt :: [Scaled ExpSigmaType] -> TcType -> TidyEnv -> TcM (TidyEnv, SDoc)
+    mk_ctxt :: [Var] -> TcType -> TidyEnv -> TcM (TidyEnv, SDoc)
     mk_ctxt arg_tys res_ty env
-      = mkFunTysMsg env herald arg_tys' res_ty arity
-      where
-        arg_tys' = map (\(Scaled u v) -> Scaled u (checkingExpType "matchExpectedFunTys" v)) $
-                   reverse arg_tys
+      = do { let arg_tys' = map (\x -> Scaled Many (varType x)) $ reverse arg_tys
+           ; mkFunTysMsg env herald arg_tys' res_ty (length . toLPats $ lampats) }
             -- this is safe b/c we're called from "go"
 
 mkFunTysMsg :: TidyEnv -> SDoc -> [Scaled TcType] -> TcType -> Arity
@@ -383,7 +380,7 @@ mkFunTysMsg env herald arg_tys res_ty n_val_args_in_call
              n_fun_args = length all_arg_tys
 
              msg | n_val_args_in_call <= n_fun_args  -- Enough args, in the end
-                 = text "In the result of a function call"
+                 = hang (full_herald <> comma) 2 (text "sorry mate") -- WIP
                  | otherwise
                  = hang (full_herald <> comma)
                       2 (sep [ text "but its type" <+> quotes (pprType fun_rho)

@@ -594,7 +594,7 @@ dsCmd ids local_vars stack_ty res_ty
       (HsCmdLamCase _ mg@MG { mg_ext = MatchGroupTc [Scaled arg_mult arg_ty] _ }) env_ids = do
   arg_id <- newSysLocalDs arg_mult arg_ty
   let case_cmd  = noLocA $ HsCmdCase noExtField (nlHsVar arg_id) mg
-  dsCmdLam ids local_vars stack_ty res_ty [nlVarPat arg_id] case_cmd env_ids
+  dsCmdLam ids local_vars stack_ty res_ty [LamVisPat (nlVarPat arg_id)] case_cmd env_ids
 
 -- D; ys |-a cmd : stk --> t
 -- ----------------------------------
@@ -731,7 +731,7 @@ dsCmdLam :: DsCmdEnv            -- arrow combinators
          -> IdSet               -- set of local vars available to this command
          -> Type                -- type of the stack (right-nested tuple)
          -> Type                -- return type of the command
-         -> [LPat GhcTc]        -- argument patterns to desugar
+         -> [LamPat GhcTc]        -- argument patterns to desugar
          -> LHsCmd GhcTc        -- body to desugar
          -> [Id]                -- list of vars in the input to this command
                                 -- This is typically fed back,
@@ -739,7 +739,7 @@ dsCmdLam :: DsCmdEnv            -- arrow combinators
          -> DsM (CoreExpr,      -- desugared expression
                  DIdSet)        -- subset of local vars that occur free
 dsCmdLam ids local_vars stack_ty res_ty pats body env_ids = do
-    let pat_vars = mkVarSet (collectPatsBinders CollWithDictBinders pats)
+    let pat_vars = mkVarSet (collectLamPatsBinders CollWithDictBinders pats)
     let local_vars' = pat_vars `unionVarSet` local_vars
         (pat_tys, stack_ty') = splitTypeAt (length pats) stack_ty
     (core_body, free_vars, env_ids')
@@ -757,7 +757,7 @@ dsCmdLam ids local_vars stack_ty res_ty pats body env_ids = do
 
     fail_expr <- mkFailExpr LambdaExpr in_ty'
     -- match the patterns against the parameters
-    match_code <- matchSimplys (map Var param_ids) LambdaExpr pats core_expr
+    match_code <- matchSimplys (map Var param_ids) LambdaExpr (toLPats pats) core_expr
                     fail_expr
     -- match the parameters against the top of the old stack
     (stack_id, param_code) <- matchVarStack param_ids stack_id' match_code
@@ -1153,7 +1153,7 @@ leavesMatch :: LMatch GhcTc (LocatedA (body GhcTc))
 leavesMatch (L _ (Match { m_pats = pats
                         , m_grhss = GRHSs _ grhss binds }))
   = let
-        defined_vars = mkVarSet (collectPatsBinders CollWithDictBinders pats)
+        defined_vars = mkVarSet (collectLamPatsBinders CollWithDictBinders pats)
                         `unionVarSet`
                        mkVarSet (collectLocalBinders CollWithDictBinders binds)
     in

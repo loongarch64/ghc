@@ -697,7 +697,7 @@ zonkMatch :: Anno (GRHS GhcTc (LocatedA (body GhcTc))) ~ SrcSpan
           -> TcM (LMatch GhcTc (LocatedA (body GhcTc)))
 zonkMatch env zBody (L loc match@(Match { m_pats = pats
                                         , m_grhss = grhss }))
-  = do  { (env1, new_pats) <- zonkPats env pats
+  = do  { (env1, new_pats) <- zonkLamPats env pats
         ; new_grhss <- zonkGRHSs env1 zBody grhss
         ; return (L loc (match { m_pats = new_pats, m_grhss = new_grhss })) }
 
@@ -1341,6 +1341,12 @@ zonkPat :: ZonkEnv -> LPat GhcTc -> TcM (ZonkEnv, LPat GhcTc)
 -- to the right)
 zonkPat env pat = wrapLocSndMA (zonk_pat env) pat
 
+zonkLamPat :: ZonkEnv -> LamPat GhcTc -> TcM (ZonkEnv, LamPat GhcTc)
+zonkLamPat env (LamVisPat pat)
+  = do { (env', p') <- zonkPat env pat
+       ; return (env', LamVisPat p')}
+zonkLamPat env p = return (env, p)
+
 zonk_pat :: ZonkEnv -> Pat GhcTc -> TcM (ZonkEnv, Pat GhcTc)
 zonk_pat env (ParPat x lpar p rpar)
   = do  { (env', p') <- zonkPat env p
@@ -1497,6 +1503,12 @@ zonkPats :: ZonkEnv -> [LPat GhcTc] -> TcM (ZonkEnv, [LPat GhcTc])
 zonkPats env []         = return (env, [])
 zonkPats env (pat:pats) = do { (env1, pat') <- zonkPat env pat
                              ; (env', pats') <- zonkPats env1 pats
+                             ; return (env', pat':pats') }
+
+zonkLamPats :: ZonkEnv -> [LamPat GhcTc] -> TcM (ZonkEnv, [LamPat GhcTc])
+zonkLamPats env []         = return (env, [])
+zonkLamPats env (pat:pats) = do { (env1, pat') <- zonkLamPat env pat
+                             ; (env', pats') <- zonkLamPats env1 pats
                              ; return (env', pat':pats') }
 
 {-

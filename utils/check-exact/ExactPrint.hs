@@ -3618,6 +3618,12 @@ instance ExactPrint (Pat GhcPs) where
     markAnnotated sig
   -- exact x = error $ "missing match for Pat:" ++ showAst x
 
+instance (ExactPrint (LamPat GhcPs)) where
+  exact (LamVisPat (L _ p)) = exact p
+  exact (LamInvisPat p) = exact p
+  getAnnotationEntry (LamVisPat (L _ p)) = getAnnotationEntry p
+  getAnnotationEntry (LamInvisPat p) = getAnnotationEntry p
+
 -- ---------------------------------------------------------------------
 
 instance ExactPrint (HsPatSigType GhcPs) where
