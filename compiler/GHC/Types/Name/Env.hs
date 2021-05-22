@@ -32,6 +32,7 @@ module GHC.Types.Name.Env (
         delFromDNameEnv, filterDNameEnv,
         mapDNameEnv, eltsDNameEnv,
         adjustDNameEnv, alterDNameEnv, extendDNameEnv,
+        plusDNameEnv_C,
         foldDNameEnv,
         nonDetStrictFoldDNameEnv,
         -- ** Dependency analysis
@@ -188,6 +189,9 @@ extendDNameEnv = addToUDFM
 
 foldDNameEnv :: (a -> b -> b) -> b -> DNameEnv a -> b
 foldDNameEnv = foldUDFM
+
+plusDNameEnv_C :: (elt -> elt -> elt) -> DNameEnv elt -> DNameEnv elt -> DNameEnv elt
+plusDNameEnv_C = plusUDFM_C
 
 nonDetStrictFoldDNameEnv :: (a -> b -> b) -> b -> DNameEnv a -> b
 nonDetStrictFoldDNameEnv = nonDetStrictFoldUDFM
