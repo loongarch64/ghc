@@ -370,7 +370,7 @@ instance Outputable FamInstEnv where
   ppr (FamIE _ fs) = text "FamIE" <+> vcat (map ppr $ elemsRM fs)
 
 famInstEnvSize :: FamInstEnv -> Int
-famInstEnvSize (FamIE sz rm) = sz
+famInstEnvSize (FamIE sz _) = sz
 
 -- | Create a 'FamInstEnv' from 'Name' indices.
 -- INVARIANTS:
