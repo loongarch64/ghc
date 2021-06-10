@@ -735,7 +735,7 @@ instance HiePass p => HasType (LocatedA (HsExpr (GhcPass p))) where
         HsPar _ _ e _ -> computeLType e
         ExplicitTuple{} -> Nothing
         HsIf _ _ t f -> computeLType t <|> computeLType f
-        HsLet _ _ body -> computeLType body
+        HsLet _ _ _ _ body -> computeLType body
         RecordCon con_expr _ _ -> computeType con_expr
         ExprWithTySig _ e _ -> computeLType e
         HsStatic _ e -> computeLType e
@@ -1140,7 +1140,7 @@ instance HiePass p => ToHie (LocatedA (HsExpr (GhcPass p))) where
       HsMultiIf _ grhss ->
         [ toHie grhss
         ]
-      HsLet _ binds expr ->
+      HsLet _ _ binds _ expr ->
         [ toHie $ RS (mkLScopeA expr) binds
         , toHie expr
         ]
@@ -1429,7 +1429,7 @@ instance HiePass p => ToHie (LocatedA (HsCmd (GhcPass p))) where
         , toHie b
         , toHie c
         ]
-      HsCmdLet _ binds cmd' ->
+      HsCmdLet _ _ binds _ cmd' ->
         [ toHie $ RS (mkLScopeA cmd') binds
         , toHie cmd'
         ]
