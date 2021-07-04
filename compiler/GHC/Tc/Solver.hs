@@ -1045,7 +1045,7 @@ simplifyInfer rhs_tclvl infer_mode sigs name_taus wanteds
             <- setTcLevel rhs_tclvl $
                runTcSWithEvBinds ev_binds_var $
                solveWanteds (mkSimpleWC psig_evs `andWC` wanteds)
-               -- psig_evs : see Note [Add signature contexts as givens]
+               -- psig_evs : see Note [Add signature contexts as wanteds]
 
        -- Find quant_pred_candidates, the predicates that
        -- we'll consider quantifying over

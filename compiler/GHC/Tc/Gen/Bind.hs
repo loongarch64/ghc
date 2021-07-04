@@ -808,7 +808,7 @@ mkExport prag_fn residual insoluble qtvs theta
 
         ; return (ABE { abe_ext = noExtField
                       , abe_wrap = wrap
-                        -- abe_wrap :: idType poly_id ~ (forall qtvs. theta => mono_ty)
+                        -- abe_wrap :: (forall qtvs. theta => mono_ty) ~ idType poly_id
                       , abe_poly  = poly_id
                       , abe_mono  = mono_id
                       , abe_prags = SpecPrags spec_prags }) }
@@ -1140,8 +1140,8 @@ We can get these by "impedance matching":
    tuple :: forall a b. (Eq a, Num a) => (a -> Bool -> Bool, [b] -> Bool -> Bool)
    tuple a b d1 d1 = let ...bind f_mono, g_mono in (f_mono, g_mono)
 
-   f a d1 d2 = case tuple a Any d1 d2 of (f, g) -> f
-   g b = case tuple Integer b dEqInteger dNumInteger of (f,g) -> g
+   f a d1 d2 = case tuple a Any d1 d2 of (f_mono, g_mono) -> f_mono
+   g b = case tuple Integer b dEqInteger dNumInteger of (f_mono,g_mono) -> g_mono
 
 Suppose the shared quantified tyvars are qtvs and constraints theta.
 Then we want to check that
