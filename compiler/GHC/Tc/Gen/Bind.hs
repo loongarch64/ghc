@@ -49,6 +49,7 @@ import GHC.Tc.Utils.TcMType
 import GHC.Core.Multiplicity
 import GHC.Core.FamInstEnv( normaliseType )
 import GHC.Tc.Instance.Family( tcGetFamInstEnvs )
+import GHC.Tc.Instance.FunDeps ( oclose )
 import GHC.Core.Class   ( Class )
 import GHC.Tc.Utils.TcType
 import GHC.Core.Type (mkStrLitTy, tidyOpenType, mkCastTy)
@@ -868,7 +869,7 @@ chooseInferredQuantifiers :: WantedConstraints  -- residual constraints
                           -> TcM ([InvisTVBinder], TcThetaType)
 chooseInferredQuantifiers _residual inferred_theta tau_tvs qtvs Nothing
   = -- No type signature (partial or complete) for this binder,
-    do { let free_tvs = closeOverKinds (growThetaTyVars inferred_theta tau_tvs)
+    do { let free_tvs = oclose inferred_theta (closeOverKinds tau_tvs)
                         -- Include kind variables!  #7916
              my_theta = pickCapturedPreds free_tvs inferred_theta
              binders  = [ mkTyVarBinder InferredSpec tv
@@ -948,7 +949,7 @@ chooseInferredQuantifiers residual inferred_theta tau_tvs qtvs
            ; return (free_tvs, annotated_theta) }
 
     choose_psig_context psig_qtvs annotated_theta (Just wc_var_ty)
-      = do { let free_tvs = closeOverKinds (growThetaTyVars inferred_theta seed_tvs)
+      = do { let free_tvs = oclose inferred_theta (closeOverKinds seed_tvs)
                             -- growThetaVars just like the no-type-sig case
                             -- Omitting this caused #12844
                  seed_tvs = tyCoVarsOfTypes annotated_theta  -- These are put there

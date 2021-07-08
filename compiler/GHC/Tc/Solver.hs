@@ -1621,7 +1621,7 @@ decideQuantifiedTyVars name_taus psigs candidates
              seed_tys = psig_tys ++ tau_tys
 
              -- Now "grow" those seeds to find ones reachable via 'candidates'
-             grown_tcvs = growThetaTyVars candidates (tyCoVarsOfTypes seed_tys)
+             grown_tcvs = oclose candidates (tyCoVarsOfTypes seed_tys)
 
        -- Now we have to classify them into kind variables and type variables
        -- (sigh) just for the benefit of -XNoPolyKinds; see quantifyTyVars
