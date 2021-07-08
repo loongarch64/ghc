@@ -84,7 +84,7 @@ test('T1735', normal, multimod_compile_and_run, ['T1735',''])
 # The following two tests no longer compile
 # See Note [Inferring principal types] in Ghc.Tc.Solver
 test('T3731', normal, compile_fail, [''])
-test('T3731_simple', normal, compile_and_run, [''])
+test('T3731_simple', normal, compile_fail, [''])
 
 test('T3731-short', normal, compile_and_run, [''])
 
