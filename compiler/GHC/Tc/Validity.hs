@@ -43,6 +43,7 @@ import GHC.Core.TyCon
 import GHC.Core.Predicate
 import GHC.Tc.Types.Origin
 import GHC.Tc.Errors.Types
+import GHC.Types.Error
 
 -- others:
 import GHC.Iface.Type    ( pprIfaceType, pprIfaceTypeApp )
@@ -706,7 +707,8 @@ check_type :: ValidityEnv -> Type -> TcM ()
 -- Rank is allowed rank for function args
 -- Rank 0 means no for-alls anywhere
 
-check_type _ (TyVarTy _) = return ()
+check_type _ (TyVarTy _)
+  = return ()
 
 check_type ve (AppTy ty1 ty2)
   = do  { check_type ve ty1
