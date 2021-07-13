@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE BangPatterns #-}
@@ -25,8 +24,6 @@ module GHC.Core.RoughMap
   , foldRM
   , unionRM
   ) where
-
-#include "HsVersions.h"
 
 import GHC.Prelude
 
@@ -67,7 +64,7 @@ typeToRoughMatchTc :: Type -> RoughMatchTc
 typeToRoughMatchTc ty
   | Just (ty', _) <- splitCastTy_maybe ty   = typeToRoughMatchTc ty'
   | Just (tc,_)   <- splitTyConApp_maybe ty
-  , not (isTypeFamilyTyCon tc)              = ASSERT2( isGenerativeTyCon tc Nominal, ppr tc )
+  , not (isTypeFamilyTyCon tc)              = assertPpr (isGenerativeTyCon tc Nominal) (ppr tc)
                                               KnownTc $! tyConName tc
     -- See Note [Rough matching in class and family instances]
   | otherwise                               = OtherTc
