@@ -202,7 +202,7 @@ hptAllInstances hsc_env
     in (foldl' unionInstEnv emptyInstEnv insts, concat famInsts)
 
 -- | Find instances visible from the given set of imports
-hptInstancesBelow :: HscEnv -> ModuleName -> [ModuleNameWithIsBoot] -> ([ClsInst], [FamInst])
+hptInstancesBelow :: HscEnv -> ModuleName -> [ModuleNameWithIsBoot] -> (InstEnv, [FamInst])
 hptInstancesBelow hsc_env mn mns =
   let (insts, famInsts) =
         unzip $ hptSomeThingsBelowUs (\mod_info ->
@@ -214,7 +214,7 @@ hptInstancesBelow hsc_env mn mns =
                              True -- Include -hi-boot
                              hsc_env
                              mns
-  in (concat insts, concat famInsts)
+  in (foldl' unionInstEnv emptyInstEnv insts, concat famInsts)
 
 -- | Get rules from modules "below" this one (in the dependency sense)
 hptRules :: HscEnv -> [ModuleNameWithIsBoot] -> [CoreRule]
