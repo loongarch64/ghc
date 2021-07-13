@@ -52,7 +52,7 @@ import GHC.Core.TyCo.Ppr ( pprTyVar, pprTyVars )
 import GHC.Core.TyCon as TyCon
 import GHC.Core.Coercion.Axiom
 import GHC.Core.Unify
-import GHC.Core.InstEnv      ( instanceDFunId )
+import GHC.Core.InstEnv      ( instanceDFunId, instEnvElts )
 import GHC.Core.Coercion.Opt ( checkAxInstCo )
 import GHC.Core.Opt.Arity    ( typeArity )
 
