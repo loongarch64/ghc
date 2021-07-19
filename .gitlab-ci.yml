@@ -658,6 +658,11 @@ validate-x86_64-darwin:
     when: always
     expire_in: 2 week
 
+validate-aarch64-darwin-llvm:
+  extends: validate-aarch64-darwin
+  variables:
+    BUILD_FLAVOUR: perf+llvm
+
 validate-aarch64-darwin:
   extends: .validate-hadrian
   stage: full-build
