@@ -50,7 +50,7 @@ import GHC.Tc.Utils.Monad   as TcM
 import GHC.Tc.Solver.InertSet
 import GHC.Tc.Solver.Monad  as TcS
 import GHC.Tc.Types.Constraint
-import GHC.Tc.Instance.FunDeps   ( oclose, instFD )
+import GHC.Tc.Instance.FunDeps   ( closeWrtFunDeps, instFD )
 import GHC.Core.Predicate
 import GHC.Core.TyCon
 import GHC.Tc.Types.Origin
@@ -1462,8 +1462,8 @@ decideMonoTyVars infer_mode name_taus psigs candidates
                -- Given this set of variables we know we will not quantify,
                -- we want to find any other variables that are determined by this
                -- set, by functional dependencies or equalities. We thus use
-               -- oclose to find all further variables determined by this root
-               -- set.
+               -- closeWrtFunDeps to find all further variables determined by this root
+               -- set. See Note [growThetaTyVars vs closeWrtFunDeps]
 
              non_ip_candidates = filterOut isIPLikePred candidates
                -- implicit params don't really determine a type variable
@@ -1474,12 +1474,12 @@ decideMonoTyVars infer_mode name_taus psigs candidates
                -- GHC.Tc.Solver. Skipping causes typecheck/should_compile/tc219
                -- to fail.
 
-             mono_tvs2 = oclose non_ip_candidates mono_tvs1
+             mono_tvs2 = closeWrtFunDeps non_ip_candidates mono_tvs1
                -- mono_tvs2 now contains any variable determined by the "root
                -- set" of monomorphic tyvars in mono_tvs1.
 
              constrained_tvs = filterVarSet (isQuantifiableTv tc_lvl) $
-                               (oclose non_ip_candidates (tyCoVarsOfTypes no_quant)
+                               (closeWrtFunDeps non_ip_candidates (tyCoVarsOfTypes no_quant)
                                 `minusVarSet` mono_tvs2)
              -- constrained_tvs: the tyvars that we are not going to
              -- quantify solely because of the monomorphism restriction
@@ -1630,6 +1630,7 @@ decideQuantifiedTyVars name_taus psigs candidates
              seed_tys = psig_tys ++ tau_tys
 
              -- Now "grow" those seeds to find ones reachable via 'candidates'
+             -- See Note [growThetaTyVars vs closeWrtFunDeps]
              grown_tcvs = growThetaTyVars candidates (tyCoVarsOfTypes seed_tys)
 
        -- Now we have to classify them into kind variables and type variables
@@ -1733,7 +1734,7 @@ pickQuantifiablePreds qtvs theta
 
 ------------------
 growThetaTyVars :: ThetaType -> TyCoVarSet -> TyCoVarSet
--- See Note [Growing the tau-tvs using constraints]
+-- See Note [growThetaTyVars vs closeWrtFunDeps]
 growThetaTyVars theta tcvs
   | null theta = tcvs
   | otherwise  = transCloVarSet mk_next seed_tcvs
@@ -1830,17 +1831,55 @@ sure to quantify over them.  This leads to several wrinkles:
   refrain from bogusly quantifying, in GHC.Tc.Solver.decideMonoTyVars.  We
   report the error later, in GHC.Tc.Gen.Bind.chooseInferredQuantifiers.
 
-Note [Growing the tau-tvs using constraints]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-(growThetaTyVars insts tvs) is the result of extending the set
-    of tyvars, tvs, using all conceivable links from pred
+Note [growThetaTyVars vs closeWrtFunDeps]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+GHC has two functions, growThetaTyVars and closeWrtFunDeps, both with
+the same type and similar behavior. This Note outlines the differences
+and why we use one or the other.
 
-E.g. tvs = {a}, preds = {H [a] b, K (b,Int) c, Eq e}
-Then growThetaTyVars preds tvs = {a,b,c}
+Both functions take a list of constraints. We will call these the
+*candidates*.
 
-Notice that
-   growThetaTyVars is conservative       if v might be fixed by vs
-                                         => v `elem` grow(vs,C)
+closeWrtFunDeps takes a set of "determined" type variables and finds the
+closure of that set with respect to the functional dependencies
+within the class constraints in the set of candidates. So, if we
+have
+
+  class C a b | a -> b
+  class D a b   -- no fundep
+  candidates = {C (Maybe a) (Either b c), D (Maybe a) (Either d e)}
+
+then closeWrtFunDeps {a} will return the set {a,b,c}.
+This is because, if `a` is determined, then `b` and `c` are, too,
+by functional dependency. closeWrtFunDeps called with any seed set not including
+`a` will just return its argument, as only `a` determines any other
+type variable (in this example).
+
+growThetaTyVars operates similarly, but it behaves as if every
+constraint has a functional dependency among all its arguments.
+So, continuing our example, growThetaTyVars {a} will return
+{a,b,c,d,e}. Put another way, growThetaTyVars grows the set of
+variables to include all variables that are mentioned in the same
+constraint (transitively).
+
+We use closeWrtFunDeps in places where we need to know which variables are
+*always* determined by some seed set. This includes
+  * when determining the mono-tyvars in decideMonoTyVars. If `a`
+    is going to be monomorphic, we need b and c to be also: they
+    are determined by the choice for `a`.
+  * when checking instance coverage, in
+    GHC.Tc.Instance.FunDeps.checkInstCoverage
+
+On the other hand, we use growThetaTyVars where we need to know
+which variables *might* be determined by some seed set. This includes
+  * deciding quantification (GHC.Tc.Gen.Bind.chooseInferredQuantifiers
+    and decideQuantifiedTyVars
+How can `a` determine (say) `d` in the example above without a fundep?
+Suppose we have
+  instance (b ~ a, c ~ a) => D (Maybe [a]) (Either b c)
+Now, if `a` turns out to be a list, it really does determine b and c.
+The danger in overdoing quantification is the creation of an ambiguous
+type signature, but this is conveniently caught in the validity checker.
 
 Note [Quantification with errors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

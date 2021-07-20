@@ -869,6 +869,7 @@ chooseInferredQuantifiers :: WantedConstraints  -- residual constraints
 chooseInferredQuantifiers _residual inferred_theta tau_tvs qtvs Nothing
   = -- No type signature (partial or complete) for this binder,
     do { let free_tvs = closeOverKinds (growThetaTyVars inferred_theta tau_tvs)
+                        -- See Note [growThetaTyVars vs closeWrtFunDeps] in GHC.Tc.Solver
                         -- Include kind variables!  #7916
              my_theta = pickCapturedPreds free_tvs inferred_theta
              binders  = [ mkTyVarBinder InferredSpec tv
@@ -950,6 +951,7 @@ chooseInferredQuantifiers residual inferred_theta tau_tvs qtvs
     choose_psig_context psig_qtvs annotated_theta (Just wc_var_ty)
       = do { let free_tvs = closeOverKinds (growThetaTyVars inferred_theta seed_tvs)
                             -- growThetaTyVars just like the no-type-sig case
+                            -- See Note [growThetaTyVars vs closeWrtFunDeps] in GHC.Tc.Solver
                             -- Omitting this caused #12844
                  seed_tvs = tyCoVarsOfTypes annotated_theta  -- These are put there
                             `unionVarSet` tau_tvs            --       by the user
