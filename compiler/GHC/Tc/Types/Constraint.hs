@@ -1937,40 +1937,43 @@ but we do not want to complain about Bool ~ Char!
 
 To avoid reporting meaningless errors -- but still allowing Wanteds to
 rewrite Wanteds, as is sometimes necessary to propagate improvements
-(see Note [The improvement story] in GHC.Tc.Solver.Interact) -- we
-record the predicate stored in a constraint as it was born. This is
-simply stored in a CtLoc, blissfully unaware of all the rewriting that
-happens during solving. Then, when reporting errors, we rewrite this
-predicate with respect to any givens (only). That rewritten predicate
-is reported to the user. Simple, and it costs time only when errors
-are being reported.
+(see Note [The improvement story] in GHC.Tc.Solver.Interact) -- every
+Wanted tracks the set of Wanteds it has been rewritten by. This is called
+a RewriterSet. Let's continue our example above:
 
-"RAE": Givens don't rewrite CtReportAs. But that's OK because givens
-get there first.
+  inert: [W] w1 :: a ~ Char
+  work:  [W] w2 :: a ~ Bool
 
-Note [Deriveds do rewrite Deriveds]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-However we DO allow Deriveds to rewrite Deriveds, because that's how
-improvement works; see Note [The improvement story] in GHC.Tc.Solver.Interact.
+Because Wanteds can rewrite Wanteds, w1 will rewrite w2, yielding
 
-However, for now at least I'm only letting (Derived,NomEq) rewrite
-(Derived,NomEq) and not doing anything for ReprEq.  If we have
-    eqCanRewriteFR (Derived, NomEq) (Derived, _)  = True
-then we lose property R2 of Definition [Can-rewrite relation]
-in GHC.Tc.Solver.Monad
-  R2.  If f1 >= f, and f2 >= f,
+  inert: [W] w1 :: a ~ Char
+         [W] w2 {w1}:: Char ~ Bool
+
+The {w1} in the second line of output is the RewriterSet stored in the
+ctev_rewriters field of the CtWanted constructor of CtEvidence.
+
+In error reporting, we simply suppress any errors that have been rewritten
+by wanteds. This suppression happens in GHC.Tc.Errors.mkErrorItem. It
+is calculated only after zonking the RewriterSet, so that any solved
+wanteds are ignored -- only an unsolved wanted suppresses an error.
+A further wrinkle is the possibility that every wanted has been rewritten
+by some other; we then disable the suppression and report what we have.
+
+Note [Avoiding rewriting cycles]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Note [inert_eqs: the inert equalities] in GHC.Tc.Solver.InertSet describes
+the can-rewrite relation among CtFlavour/Role pairs, saying which constraints
+can rewrite which other constraints. It puts forth (R2):
+  (R2) If f1 >= f, and f2 >= f,
        then either f1 >= f2 or f2 >= f1
-Consider f1 = (Given, ReprEq)
-         f2 = (Derived, NomEq)
-          f = (Derived, ReprEq)
+The naive can-rewrite relation says that (Given, Representational) can rewrite
+(Wanted, Representational) and that (Wanted, Nominal) can rewrite
+(Wanted, Representational), but neither of (Given, Representational) and
+(Wanted, Nominal) can rewrite the other. This would violate (R2). See also
+Note [Why R2?] in GHC.Tc.Solver.InertSet.
 
-I thought maybe we could never get Derived ReprEq constraints, but
-we can; straight from the Wanteds during improvement. And from a Derived
-ReprEq we could conceivably get a Derived NomEq improvement (by decomposing
-a type constructor with Nomninal role), and hence unify.
-
-This restriction that (Derived, NomEq) cannot rewrite (Derived, ReprEq) bites,
-in an obscure scenario:
+To keep R2, we do not allow (Wanted, Nominal) to rewrite (Wanted, Representational).
+This restriction actually bites, in an obscure scenario:
 
   data T a
   type role T nominal
@@ -1986,35 +1989,29 @@ in an obscure scenario:
 The problem is in the body of f. We have
 
   [G]  F a ~N T a
-  [WD] F alpha ~N T alpha
-  [WD] F alpha ~R T a
-
-The Wanteds aren't of use, so let's just look at Deriveds:
-
-  [G] F a ~N T a
-  [D] F alpha ~N T alpha
-  [D] F alpha ~R T a
+  [W] F alpha ~N T alpha
+  [W] F alpha ~R T a
 
 As written, this makes no progress, and GHC errors. But, if we
-allowed D/N to rewrite D/R, the first D could rewrite the second:
+allowed W/N to rewrite W/R, the first W could rewrite the second:
 
   [G] F a ~N T a
-  [D] F alpha ~N T alpha
-  [D] T alpha ~R T a
+  [W] F alpha ~N T alpha
+  [W] T alpha ~R T a
 
-Now we decompose the second D to get
+Now we decompose the second W to get
 
-  [D] alpha ~N a
+  [W] alpha ~N a
 
 noting the role annotation on T. This causes (alpha := a), and then
 everything else unlocks.
 
 What to do? We could "decompose" nominal equalities into nominal-only
 ("NO") equalities and representational ones, where a NO equality rewrites
-only nominals. That is, when considering whether [D] F alpha ~N T alpha
-should rewrite [D] F alpha ~R T a, we could require splitting the first D
-into [D] F alpha ~NO T alpha, [D] F alpha ~R T alpha. Then, we use the R
-half of the split to rewrite the second D, and off we go. This splitting
+only nominals. That is, when considering whether [W] F alpha ~N T alpha
+should rewrite [W] F alpha ~R T a, we could require splitting the first W
+into [W] F alpha ~NO T alpha, [W] F alpha ~R T alpha. Then, we use the R
+half of the split to rewrite the second W, and off we go. This splitting
 would allow the split-off R equality to be rewritten by other equalities,
 thus avoiding the problem in Note [Why R2?] in GHC.Tc.Solver.InertSet.
 
@@ -2033,12 +2030,13 @@ eqCanRewriteFR :: CtFlavourRole -> CtFlavourRole -> Bool
 -- Very important function!
 -- See Note [eqCanRewrite]
 -- See Note [Wanteds rewrite Wanteds]
--- See Note [Deriveds do rewrite Deriveds]
-eqCanRewriteFR (Given,         r1)    (_,        r2)   = eqCanRewrite r1 r2
-eqCanRewriteFR (Wanted _,      r1)    (Wanted _, r2)   = eqCanRewrite r1 r2
-eqCanRewriteFR (Wanted _,      r1)    (Derived,  r2)   = eqCanRewrite r1 r2
-eqCanRewriteFR (Derived,       NomEq) (Derived, NomEq) = True
-eqCanRewriteFR _                      _                = False
+-- See Note [Avoiding rewriting cycles]
+eqCanRewriteFR (Given,         r1)    (_,        r2)     = eqCanRewrite r1 r2
+eqCanRewriteFR (Wanted _,      NomEq) (Wanted _, ReprEq) = False
+eqCanRewriteFR (Wanted _,      r1)    (Wanted _, r2)     = eqCanRewrite r1 r2
+eqCanRewriteFR (Wanted _,      r1)    (Derived,  r2)     = eqCanRewrite r1 r2
+eqCanRewriteFR (Derived,       NomEq) (Derived, NomEq)   = True
+eqCanRewriteFR _                      _                  = False
 
 eqMayRewriteFR :: CtFlavourRole -> CtFlavourRole -> Bool
 -- Is it /possible/ that fr1 can rewrite fr2?

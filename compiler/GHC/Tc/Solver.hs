@@ -1466,7 +1466,9 @@ decideMonoTyVars infer_mode name_taus psigs candidates
                -- set.
 
              non_ip_candidates = filterOut isIPLikePred candidates
-               -- implicit params don't really determine a type variable, and
+               -- implicit params don't really determine a type variable
+               -- (that is, we might have IP "c" Bool and IP "c" Int in different
+               -- places within the same program), and
                -- skipping this causes implicit params to monomorphise too many
                -- variables; see Note [Inheriting implicit parameters] in
                -- GHC.Tc.Solver. Skipping causes typecheck/should_compile/tc219

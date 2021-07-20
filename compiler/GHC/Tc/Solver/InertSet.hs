@@ -732,7 +732,7 @@ yet, we have a hard time noticing an occurs-check problem when building S, as
 the two equalities cannot rewrite one another.
 
 R2 actually restricts our ability to accept user-written programs. See
-Note [Deriveds do rewrite Deriveds] in GHC.Tc.Types.Constraint for an example.
+Note [Avoiding rewriting cycles] in GHC.Tc.Types.Constraint for an example.
 
 Note [Rewritable]
 ~~~~~~~~~~~~~~~~~
