@@ -220,6 +220,11 @@ The supported transformers are listed below:
         <td><code>no_profiled_libs</code></td>
         <td>Disables building of libraries in profiled build ways.</td>
     </tr>
+    <tr>
+        <td><code>lint</code></td>
+        <td>Enable Core, STG, and C-- linting in all compilation with the stage1
+        compiler.</td>
+    </tr>
 </table>
 
 ## Ways
