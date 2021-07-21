@@ -319,6 +319,10 @@ stack-hadrian-build:
 validate-x86_64-linux-deb9-hadrian:
   extends: .validate-linux-hadrian
   stage: full-build
+  variables:
+    # N.B. we enable linting here to ensure that every pipeline has at
+    # least one linted job.
+    BUILD_FLAVOUR: perf+lint
 
 validate-x86_64-linux-deb9-unreg-hadrian:
   extends: .validate-linux-hadrian
