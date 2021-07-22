@@ -1,5 +1,5 @@
 TYPE SIGNATURES
-  foo :: forall {a}. C a Integer => a -> ()
+  foo :: forall {a} {b}. (C a b, Num b) => a -> ()
   op :: forall a b. C a b => a -> b -> ()
 TYPE CONSTRUCTORS
   class C{2} :: * -> * -> Constraint
@@ -37,13 +37,13 @@ $krep [InlPrag=[~]]
 Bug.$trModule
   = GHC.Types.Module
       (GHC.Types.TrNameS "main"#) (GHC.Types.TrNameS "Bug"#)
-AbsBinds [a] [$dC]
+AbsBinds [a, b] [$dC, $dNum]
   {Exports: [foo <= foo
                wrap: <>]
-   Exported types: foo :: forall {a}. C a Integer => a -> ()
+   Exported types: foo :: forall {a} {b}. (C a b, Num b) => a -> ()
                    [LclId]
-   Binds: foo x = op @a @Integer $dC x 3
+   Binds: foo x = op @a @b $dC x 3
    Evidence: [EvBinds{[W] $dC = $dC
-                      [W] $dNum = GHC.Num.$fNumInteger}]}
+                      [W] $dNum = $dNum}]}
 
 

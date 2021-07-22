@@ -797,12 +797,15 @@ mkExport prag_fn residual insoluble qtvs theta
                   then return idHsWrapper  -- Fast path; also avoids complaint when we infer
                                            -- an ambiguous type and have AllowAmbiguousType
                                            -- e..g infer  x :: forall a. F a -> Int
-                  else tcSubTypeSigma (Shouldn'tHappenOrigin "impedance matching")
+                  else tcSubTypeSigma GhcBug20076
                                       sig_ctxt sel_poly_ty poly_ty
                        -- as Note [Impedance matching] explains, this should never fail,
                        -- and thus we'll never see an error message. It *may* do
                        -- instantiation, but no message will ever be printed to the
                        -- user, and so we use Shouldn'tHappenOrigin.
+                       -- Actually, there is a bug here: #20076. So we tell the user
+                       -- that they hit the bug. Once #20076 is fixed, change this
+                       -- back to Shouldn'tHappenOrigin.
 
         ; localSigWarn Opt_WarnMissingLocalSignatures poly_id mb_sig
 

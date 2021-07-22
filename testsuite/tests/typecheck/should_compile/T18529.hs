@@ -1,6 +1,6 @@
 {-# LANGUAGE Haskell2010 #-}
 
-{-# LANGUAGE MultiParamTypeClasses, FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, AllowAmbiguousTypes #-}
 
 module Bug where
 

@@ -455,6 +455,7 @@ data CtOrigin
   | BracketOrigin       -- An overloaded quotation bracket
   | StaticOrigin        -- A static form
   | Shouldn'tHappenOrigin String   -- the user should never see this one
+  | GhcBug20076                    -- see #20076
   | InstProvidedOrigin Module ClsInst
         -- Skolem variable arose when we were testing if an instance
         -- is solvable or not.
@@ -637,6 +638,13 @@ pprCtOrigin (Shouldn'tHappenOrigin note)
                         <+> quotes (text note) <+> text "at"
                     , text "https://gitlab.haskell.org/ghc/ghc/wikis/report-a-bug >>"
                     ]
+
+pprCtOrigin GhcBug20076
+  = vcat [ text "GHC Bug #20076 <https://gitlab.haskell.org/ghc/ghc/-/issues/20076>"
+         , text "Assuming you have a partial type signature, you can avoid this error"
+         , text "by either adding an extra-constraints wildcard (like `(..., _) => ...`,"
+         , text "with the underscore at the end of the constraint), or by avoiding the"
+         , text "use of a simplifiable constraint in your partial type signature." ]
 
 pprCtOrigin (ProvCtxtOrigin PSB{ psb_id = (L _ name) })
   = hang (ctoHerald <+> text "the \"provided\" constraints claimed by")
