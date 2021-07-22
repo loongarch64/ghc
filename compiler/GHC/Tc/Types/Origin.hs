@@ -631,13 +631,11 @@ pprCtOrigin (MCompPatOrigin pat)
            , text "in a statement in a monad comprehension" ]
 
 pprCtOrigin (Shouldn'tHappenOrigin note)
-  = sdocOption sdocImpredicativeTypes $ \case
-      True  -> text "a situation created by impredicative types"
-      False -> vcat [ text "<< This should not appear in error messages. If you see this"
-                    , text "in an error message, please report a bug mentioning"
-                        <+> quotes (text note) <+> text "at"
-                    , text "https://gitlab.haskell.org/ghc/ghc/wikis/report-a-bug >>"
-                    ]
+  = vcat [ text "<< This should not appear in error messages. If you see this"
+         , text "in an error message, please report a bug mentioning"
+             <+> quotes (text note) <+> text "at"
+         , text "https://gitlab.haskell.org/ghc/ghc/wikis/report-a-bug >>"
+         ]
 
 pprCtOrigin GhcBug20076
   = vcat [ text "GHC Bug #20076 <https://gitlab.haskell.org/ghc/ghc/-/issues/20076>"
