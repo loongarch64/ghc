@@ -13,7 +13,7 @@ flag libdl
 flag ffi
   default: @CabalHaveLibffi@
 flag use-system-libffi
-  default: @UseSystemLibFFI@
+  default: @CabalUseSystemLibFFI@
 flag need-pthread
   default: @CabalNeedLibpthread@
 flag libbfd
