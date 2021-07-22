@@ -2777,8 +2777,7 @@ Here are the details:
    include the constraints left after the second simplification described
    in this Note. Yet we don't want duplicates, which could lead to
    duplicate error messages. We thus carefully compute the depleted
-   WantedConstraints in approximateWC. The two WantedConstraints are
-   cobined in the call to mkResidualConstraints in simplifyInfer.
+   WantedConstraints in approximateWC.
 
 Note [DefaultTyVar]
 ~~~~~~~~~~~~~~~~~~~
