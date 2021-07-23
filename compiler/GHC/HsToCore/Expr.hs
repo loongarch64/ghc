@@ -1471,9 +1471,6 @@ checkLevPolyArgs :: Outputable e => e -> Type -> DsM ()
 -- Pass orig_hs_expr, so that the user can see entire thing
 -- Note [Checking for representation-polymorphic functions]
 checkLevPolyArgs orig_hs_expr ty
-  | let (binders, _) = splitPiTys ty
-        arg_tys      = mapMaybe binderRelevantType_maybe binders
-        bad_tys      = filter isTypeLevPoly arg_tys
-  , not (null bad_tys)
+  | Just bad_tys <- hasLevPolyArgs ty
   = diagnosticDs $ DsCannotUseFunWithPolyArgs orig_hs_expr ty bad_tys
   | otherwise = return ()

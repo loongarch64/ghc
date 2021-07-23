@@ -144,7 +144,7 @@ module GHC.Core.Type (
         Kind,
 
         -- ** Finding the kind of a type
-        typeKind, tcTypeKind, isTypeLevPoly, resultIsLevPoly,
+        typeKind, tcTypeKind, isTypeLevPoly, resultIsLevPoly, hasLevPolyArgs,
         tcIsLiftedTypeKind, tcIsConstraintKind, tcReturnsConstraintKind,
         tcIsBoxedTypeKind, tcIsRuntimeTypeKind,
 
@@ -286,8 +286,7 @@ import GHC.Data.Pair
 import GHC.Data.List.SetOps
 import GHC.Types.Unique ( nonDetCmpUnique )
 
-import GHC.Data.Maybe   ( orElse, expectJust )
-import Data.Maybe       ( isJust )
+import GHC.Data.Maybe   ( orElse, expectJust, isJust )
 import Control.Monad    ( guard )
 
 -- $type_classification
@@ -2933,6 +2932,18 @@ isTypeLevPoly = go
     go ty@(CoercionTy {})                        = pprPanic "isTypeLevPoly co" (ppr ty)
 
     check_kind = isKindLevPoly . typeKind
+
+hasLevPolyArgs :: Type -> Maybe [Type]
+-- Does this function have any levity-polymorphic value arguments?
+hasLevPolyArgs ty
+  | null bad_tys = Nothing
+  | otherwise    = Just bad_tys
+  where
+    bad_tys = [ arg_ty | Anon _ scaled_ty <- bndrs
+                       , let arg_ty = scaledThing scaled_ty
+                       , isTypeLevPoly arg_ty ]
+    bndrs :: [TyCoBinder]
+    (bndrs, _) = splitPiTys ty
 
 -- | Looking past all pi-types, is the end result potentially
 -- representation-polymorphic?
