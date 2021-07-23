@@ -37,9 +37,9 @@ import GHC.Core.Ppr     ( pprCoreExpr )
 import GHC.Core.Unfold
 import GHC.Core.Unfold.Make
 import GHC.Core.Utils
-import GHC.Core.Opt.Arity ( ArityType(..), typeArity
+import GHC.Core.Opt.Arity ( ArityType, arityTypeArityDiv, exprArity
                           , pushCoTyArg, pushCoValArg
-                          , etaExpandAT )
+                          , typeArity, arityTypeArity, etaExpandAT )
 import GHC.Core.SimpleOpt ( exprIsConApp_maybe, joinPointBinding_maybe, joinPointBindings_maybe )
 import GHC.Core.FVs     ( mkRuleInfo )
 import GHC.Core.Rules   ( lookupRule, getRules, initRuleOpts )
@@ -298,7 +298,6 @@ simplRecOrTopPair env top_lvl is_rec mb_cont old_bndr new_bndr rhs
   | Just cont <- mb_cont
   = {-#SCC "simplRecOrTopPair-join" #-}
     assert (isNotTopLevel top_lvl && isJoinId new_bndr )
-    simplTrace env "SimplBind:join" (ppr old_bndr) $
     simplJoinBind env is_rec cont old_bndr new_bndr rhs env
 
   | otherwise
@@ -352,7 +351,7 @@ simplLazyBind env top_lvl is_rec bndr bndr1 rhs rhs_se
                 -- See Note [Floating and type abstraction] in GHC.Core.Opt.Simplify.Utils
 
         -- Simplify the RHS
-        ; let rhs_cont = mkRhsStop (substTy body_env (exprType body))
+        ; let rhs_cont = mkRhsStop (substTy body_env (exprType body)) is_rec
         ; (body_floats0, body0) <- {-#SCC "simplExprF" #-} simplExprF body_env body rhs_cont
 
               -- Never float join-floats out of a non-join let-binding (which this is)
@@ -372,7 +371,7 @@ simplLazyBind env top_lvl is_rec bndr bndr1 rhs rhs_se
         ; (rhs_floats, body3)
             <-  if not (doFloatFromRhs top_lvl is_rec False body_floats2 body2)
                 then                    -- No floating, revert to body1
-                     return (emptyFloats env, wrapFloats body_floats2 body1)
+                     return (emptyFloats env, wrapFloats body_floats1 body1)
 
                 else if null tvs then   -- Simple floating
                      {-#SCC "simplLazyBind-simple-floating" #-}
@@ -384,17 +383,18 @@ simplLazyBind env top_lvl is_rec bndr bndr1 rhs rhs_se
                      do { tick LetFloatFromLet
                         ; (poly_binds, body3) <- abstractFloats (seUnfoldingOpts env) top_lvl
                                                                 tvs' body_floats2 body2
-                        ; let floats = foldl' extendFloats (emptyFloats env) poly_binds
-                        ; return (floats, body3) }
+                        ; let poly_floats = foldl' extendFloats (emptyFloats env) poly_binds
+                        ; return (poly_floats, body3) }
 
         ; let env' = env `setInScopeFromF` rhs_floats
-        ; rhs' <- mkLam env' tvs' body3 rhs_cont
+        ; (_empty_floats, rhs') <- rebuildLam env' tvs' (emptyFloats env') body3 rhs_cont
+        ; assertPpr (isEmptyFloats _empty_floats) (ppr _empty_floats) $ return ()
+          -- rebuildLam returns emptyFloats if given emptyFloats
         ; (bind_float, env2) <- completeBind env' top_lvl is_rec Nothing bndr bndr1 rhs'
         ; return (rhs_floats `addFloats` bind_float, env2) }
 
 --------------------------
-simplJoinBind :: SimplEnv
-              -> RecFlag
+simplJoinBind :: SimplEnv -> RecFlag
               -> SimplCont
               -> InId -> OutId          -- Binder, both pre-and post simpl
                                         -- The OutId has IdInfo, except arity,
@@ -944,8 +944,7 @@ addLetBndrInfo :: OutId -> ArityType -> Unfolding -> OutId
 addLetBndrInfo new_bndr new_arity_type new_unf
   = new_bndr `setIdInfo` info5
   where
-    AT oss div = new_arity_type
-    new_arity  = length oss
+    (new_arity, div) = arityTypeArityDiv new_arity_type
 
     info1 = idInfo new_bndr `setArityInfo` new_arity
 
@@ -1660,10 +1659,12 @@ simplLam env bndrs body (TickIt tickish cont)
 
         -- Not enough args, so there are real lambdas left to put in the result
 simplLam env bndrs body cont
-  = do  { (env', bndrs') <- simplLamBndrs env bndrs
-        ; body'   <- simplExpr env' body
-        ; new_lam <- mkLam env' bndrs' body' cont
-        ; rebuild env' new_lam cont }
+  = do  { (env', bndrs')  <- simplLamBndrs env bndrs
+        ; let body_ty' = substTy env' (exprType body)
+        ; (floats, body') <- simplExprF env' body (mkBoringStop body_ty')
+        ; (floats1, new_lam) <- rebuildLam env' bndrs' floats body' cont
+        ; (floats2, expr')   <- rebuild (env `setInScopeFromF` floats1) new_lam cont
+        ; return (floats1 `addFloats` floats2, expr') }
 
 -------------
 simplLamBndr :: SimplEnv -> InBndr -> SimplM (SimplEnv, OutBndr)
@@ -3530,8 +3531,8 @@ mkDupableContWithDmds env dmds
         --              let a = ...arg...
         --              in [...hole...] a
         -- NB: sc_dup /= OkToDup; that is caught earlier by contIsDupable
-    do  { let (dmd:_) = dmds   -- Never fails
-        ; (floats1, cont') <- mkDupableContWithDmds env dmds cont
+    do  { let (dmd:cont_dmds) = dmds   -- Never fails
+        ; (floats1, cont') <- mkDupableContWithDmds env cont_dmds cont
         ; let env' = env `setInScopeFromF` floats1
         ; (_, se', arg') <- simplArg env' dup se arg
         ; (let_floats2, arg'') <- makeTrivial env NotTopLevel dmd (fsLit "karg") arg'
@@ -4116,11 +4117,12 @@ simplStableUnfolding env top_lvl mb_cont id rhs_ty id_arity unf
          -- See Note [Simplifying inside stable unfoldings] in GHC.Core.Opt.Simplify.Utils
 
     -- See Note [Eta-expand stable unfoldings]
-    eta_expand expr
-      | not eta_on         = expr
-      | exprIsTrivial expr = expr
-      | otherwise          = etaExpandAT (getInScope env) id_arity expr
-    eta_on = sm_eta_expand (getMode env)
+    eta_expand expr | sm_eta_expand (getMode env)
+                    , exprArity expr < arityTypeArity id_arity
+                    , wantEtaExpansion expr
+                    = etaExpandAT (getInScope env) id_arity expr
+                    | otherwise
+                    = expr
 
 {- Note [Eta-expand stable unfoldings]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
