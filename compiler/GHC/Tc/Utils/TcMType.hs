@@ -38,7 +38,7 @@ module GHC.Tc.Utils.TcMType (
   newEvVar, newEvVars, newDict,
   newWanted, newWanteds, cloneWanted, cloneWC, cloneWantedCtEv,
   emitWanted, emitWantedEq, emitWantedEvVar, emitWantedEvVars,
-  emitDerivedEqs,
+  emitWantedEqs,
   newTcEvBinds, newNoTcEvBinds, addTcEvBind,
   emitNewExprHole,
 
@@ -195,7 +195,6 @@ newWanted orig t_or_k pty
                                 else EvVarDest <$> newEvVar pty
        return $ CtWanted { ctev_dest      = d
                          , ctev_pred      = pty
-                         , ctev_nosh      = WDeriv
                          , ctev_loc       = loc
                          , ctev_rewriters = emptyRewriterSet }
 
@@ -243,9 +242,9 @@ emitWanted origin pty
        ; emitSimple $ mkNonCanonical ev
        ; return $ ctEvTerm ev }
 
-emitDerivedEqs :: CtOrigin -> [(TcType,TcType)] -> TcM ()
--- Emit some new derived nominal equalities
-emitDerivedEqs origin pairs
+emitWantedEqs :: CtOrigin -> [(TcType,TcType)] -> TcM ()
+-- Emit some new wanted nominal equalities
+emitWantedEqs origin pairs
   | null pairs
   = return ()
   | otherwise
@@ -259,7 +258,6 @@ emitWantedEq origin t_or_k role ty1 ty2
        ; emitSimple $ mkNonCanonical $
          CtWanted { ctev_pred = pty
                   , ctev_dest = HoleDest hole
-                  , ctev_nosh = WDeriv
                   , ctev_loc = loc
                   , ctev_rewriters = rewriterSetFromTypes [ty1, ty2] }
        ; return (HoleCo hole) }
@@ -274,7 +272,6 @@ emitWantedEvVar origin ty
        ; loc <- getCtLocM origin Nothing
        ; let ctev = CtWanted { ctev_dest      = EvVarDest new_cv
                              , ctev_pred      = ty
-                             , ctev_nosh      = WDeriv
                              , ctev_loc       = loc
                              , ctev_rewriters = emptyRewriterSet }
        ; emitSimple $ mkNonCanonical ctev
@@ -2386,9 +2383,6 @@ zonkCtEvidence ctev@(CtWanted { ctev_pred = pred
                          -- necessary in simplifyInfer
                        HoleDest h   -> HoleDest h
        ; return (ctev { ctev_pred = pred', ctev_dest = dest' }) }
-zonkCtEvidence ctev@(CtDerived { ctev_pred = pred })
-  = do { pred' <- zonkTcType pred
-       ; return (ctev { ctev_pred = pred' }) }
 
 zonkSkolemInfo :: SkolemInfo -> TcM SkolemInfo
 zonkSkolemInfo (SigSkol cx ty tv_prs)  = do { ty' <- zonkTcType ty

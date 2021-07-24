@@ -1066,7 +1066,6 @@ getDictionaryBindings theta = do
   return CtWanted {
     ctev_pred = varType dict_var,
     ctev_dest = EvVarDest dict_var,
-    ctev_nosh = WDeriv,
     ctev_loc = loc,
     ctev_rewriters = emptyRewriterSet
   }

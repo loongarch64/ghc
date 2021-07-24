@@ -234,15 +234,14 @@ We need to add superclass constraints for two reasons:
   We get a Wanted (Eq a), which can only be solved from the superclass
   of the Given (Ord a).
 
-* For wanteds [W], and deriveds [WD], [D], they may give useful
+* For wanteds [W], they may give useful
   functional dependencies.  E.g.
      class C a b | a -> b where ...
      class C a b => D a b where ...
   Now a [W] constraint (D Int beta) has (C Int beta) as a superclass
   and that might tell us about beta, via C's fundeps.  We can get this
-  by generating a [D] (C Int beta) constraint.  It's derived because
-  we don't actually have to cough up any evidence for it; it's only there
-  to generate fundep equalities.
+  by generating a [W] (C Int beta) constraint. We won't use the evidence,
+  but it may lead to unification.
 
 See Note [Why adding superclasses can help].
 
@@ -292,7 +291,7 @@ So here's the plan:
    GHC.Tc.Solver.simpl_loop and solveWanteds.
 
    This may succeed in generating (a finite number of) extra Givens,
-   and extra Deriveds. Both may help the proof.
+   and extra Wanteds. Both may help the proof.
 
 3a An important wrinkle: only expand Givens from the current level.
    Two reasons:
@@ -386,7 +385,7 @@ Examples of how adding superclasses can help:
     Suppose we want to solve
          [G] C a b
          [W] C a beta
-    Then adding [D] beta~b will let us solve it.
+    Then adding [W] beta~b will let us solve it.
 
     -- Example 2 (similar but using a type-equality superclass)
         class (F a ~ b) => C a b
@@ -395,8 +394,8 @@ Examples of how adding superclasses can help:
          [W] C a beta
     Follow the superclass rules to add
          [G] F a ~ b
-         [D] F a ~ beta
-    Now we get [D] beta ~ b, and can solve that.
+         [W] F a ~ beta
+    Now we get [W] beta ~ b, and can solve that.
 
     -- Example (tcfail138)
       class L a b | a -> b
@@ -411,9 +410,9 @@ Examples of how adding superclasses can help:
       [W] G (Maybe a)
     Use the instance decl to get
       [W] C a beta
-    Generate its derived superclass
-      [D] L a beta.  Now using fundeps, combine with [G] L a b to get
-      [D] beta ~ b
+    Generate its superclass
+      [W] L a beta.  Now using fundeps, combine with [G] L a b to get
+      [W] beta ~ b
     which is what we want.
 
 Note [Danger of adding superclasses during solving]
@@ -430,8 +429,8 @@ Assume the generated wanted constraint is:
 If we were to be adding the superclasses during simplification we'd get:
    [W] RealOf e ~ e
    [W] Normed e
-   [D] RealOf e ~ fuv
-   [D] Num fuv
+   [W] RealOf e ~ fuv
+   [W] Num fuv
 ==>
    e := fuv, Num fuv, Normed fuv, RealOf fuv ~ fuv
 
@@ -439,9 +438,6 @@ While looks exactly like our original constraint. If we add the
 superclass of (Normed fuv) again we'd loop.  By adding superclasses
 definitely only once, during canonicalisation, this situation can't
 happen.
-
-Mind you, now that Wanteds cannot rewrite Derived, I think this particular
-situation can't happen.
 
 Note [Nested quantified constraint superclasses]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -591,18 +587,18 @@ mk_strict_superclasses rec_clss (CtGiven { ctev_evar = evar, ctev_loc = loc })
 
 mk_strict_superclasses rec_clss ev tvs theta cls tys
   | all noFreeVarsOfType tys
-  = return [] -- Wanteds with no variables yield no deriveds.
+  = return [] -- Wanteds with no variables yield no superclass constraints.
               -- See Note [Improvement from Ground Wanteds]
 
-  | otherwise -- Wanted/Derived case, just add Derived superclasses
+  | otherwise -- Wanted case, just add Wanted superclasses
               -- that can lead to improvement.
   = assertPpr (null tvs && null theta) (ppr tvs $$ ppr theta) $
-    concatMapM do_one_derived (immSuperClasses cls tys)
+    concatMapM do_one (immSuperClasses cls tys)
   where
     loc = ctEvLoc ev `updateCtLocOrigin` WantedSuperclassOrigin (ctEvPred ev)
 
-    do_one_derived sc_pred
-      = do { sc_ev <- newDerivedNC loc (ctEvRewriters ev) sc_pred
+    do_one sc_pred
+      = do { sc_ev <- newWantedNC loc (ctEvRewriters ev) sc_pred
            ; mk_superclasses rec_clss sc_ev [] [] sc_pred }
 
 {- Note [Improvement from Ground Wanteds]
@@ -610,8 +606,8 @@ mk_strict_superclasses rec_clss ev tvs theta cls tys
 Suppose class C b a => D a b
 and consider
   [W] D Int Bool
-Is there any point in emitting [D] C Bool Int?  No!  The only point of
-emitting superclass constraints for W/D constraints is to get
+Is there any point in emitting [W] C Bool Int?  No!  The only point of
+emitting superclass constraints for W constraints is to get
 improvement, extra unifications that result from functional
 dependencies.  See Note [Why adding superclasses can help] above.
 
@@ -837,8 +833,8 @@ canForAll ev pend_sc
 
 solveForAll :: CtEvidence -> [TyVar] -> TcThetaType -> PredType -> Bool
             -> TcS (StopOrContinue Ct)
-solveForAll ev tvs theta pred pend_sc
-  | CtWanted { ctev_dest = dest, ctev_rewriters = rewriters } <- ev
+solveForAll ev@(CtWanted { ctev_dest = dest, ctev_rewriters = rewriters, ctev_loc = loc })
+            tvs theta pred _pend_sc
   = -- See Note [Solving a Wanted forall-constraint]
     do { let skol_info = QuantCtxtSkol
              empty_subst = mkEmptyTCvSubst $ mkInScopeSet $
@@ -862,15 +858,11 @@ solveForAll ev tvs theta pred pend_sc
 
       ; stopWith ev "Wanted forall-constraint" }
 
-  | isGiven ev   -- See Note [Solving a Given forall-constraint]
+ -- See Note [Solving a Given forall-constraint]
+solveForAll ev@(CtGiven {}) tvs _theta pred pend_sc
   = do { addInertForAll qci
        ; stopWith ev "Given forall-constraint" }
-
-  | otherwise
-  = do { traceTcS "discarding derived forall-constraint" (ppr ev)
-       ; stopWith ev "Derived forall-constraint" }
   where
-    loc = ctEvLoc ev
     qci = QCI { qci_ev = ev, qci_tvs = tvs
               , qci_pred = pred, qci_pend_sc = pend_sc }
 
@@ -1496,10 +1488,6 @@ can_eq_app :: CtEvidence       -- :: s1 t1 ~N s2 t2
 -- to an irreducible constraint; see typecheck/should_compile/T10494
 -- See Note [Decomposing AppTy at representational role]
 can_eq_app ev s1 t1 s2 t2
-  | CtDerived {} <- ev
-  = do { unifyDeriveds loc [Nominal, Nominal] [s1, t1] [s2, t2]
-       ; stopWith ev "Decomposed [D] AppTy" }
-
   | CtWanted { ctev_dest = dest, ctev_rewriters = rewriters } <- ev
   = do { co_s <- unifyWanted rewriters loc Nominal s1 s2
        ; let arg_loc
@@ -1662,17 +1650,12 @@ So, in broad strokes, we want this rule:
 at role X.
 
 Pursuing the details requires exploring three axes:
-* Flavour: Given vs. Derived vs. Wanted
+* Flavour: Given vs. Wanted
 * Role: Nominal vs. Representational
 * TyCon species: datatype vs. newtype vs. data family vs. type family vs. type variable
 
 (A type variable isn't a TyCon, of course, but it's convenient to put the AppTy case
 in the same table.)
-
-Right away, we can say that Derived behaves just as Wanted for the purposes
-of decomposition. The difference between Derived and Wanted is the handling of
-evidence. Since decomposition in these cases isn't a matter of soundness but of
-guessing, we want the same behaviour regardless of evidence.
 
 Here is a table (discussion following) detailing where decomposition of
    (T s1 ... sn) ~r (T t1 .. tn)
@@ -1700,7 +1683,7 @@ AppTy                  NO{4}        NO{4}                         can_eq_nc'
 {1}: Type families can be injective in some, but not all, of their arguments,
 so we want to do partial decomposition. This is quite different than the way
 other decomposition is done, where the decomposed equalities replace the original
-one. We thus proceed much like we do with superclasses, emitting new Deriveds
+one. We thus proceed much like we do with superclasses, emitting new Wanteds
 when "decomposing" a partially-injective type family Wanted. Injective type
 families have no corresponding evidence of their injectivity, so we cannot
 decompose an injective-type-family Given.
@@ -1876,9 +1859,6 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
     do { traceTcS "canDecomposableTyConAppOK"
                   (ppr ev $$ ppr eq_rel $$ ppr tc $$ ppr tys1 $$ ppr tys2)
        ; case ev of
-           CtDerived {}
-             -> unifyDeriveds loc tc_roles tys1 tys2
-
            CtWanted { ctev_dest = dest, ctev_rewriters = rewriters }
                   -- new_locs and tc_roles are both infinite, so
                   -- we are guaranteed that cos has the same length
@@ -2006,21 +1986,6 @@ Consider [G] (forall a. t1 ~ forall a. t2).  Can we decompose this?
 No -- what would the evidence look like?  So instead we simply discard
 this given evidence.
 
-
-Note [Combining insoluble constraints]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-As this point we have an insoluble constraint, like Int~Bool.
-
- * If it is Wanted, delete it from the cache, so that subsequent
-   Int~Bool constraints give rise to separate error messages
-
- * But if it is Derived, DO NOT delete from cache.  A class constraint
-   may get kicked out of the inert set, and then have its functional
-   dependency Derived constraints generated a second time. In that
-   case we don't want to get two (or more) error messages by
-   generating two (or more) insoluble fundep constraints from the same
-   class constraint.
-
 Note [No top-level newtypes on RHS of representational equalities]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Suppose we're in this situation:
@@ -2046,8 +2011,8 @@ Ticket #10009, a very nasty example:
     g _ = f (undefined :: F a)
 
 For g we get [G]  g1 : UnF (F a) ~ a
-             [WD] w1 : UnF (F beta) ~ beta
-             [WD] w2 : F a ~ F beta
+             [W] w1 : UnF (F beta) ~ beta
+             [W] w2 : F a ~ F beta
 
 g1 is canonical (CEqCan). It is oriented as above because a is not touchable.
 See canEqTyVarFunEq.
@@ -2062,17 +2027,16 @@ of w2. We'll thus lose.
 
 But if w2 is swapped around, to
 
-    [D] w3 : F beta ~ F a
+    [W] w3 : F beta ~ F a
 
-then (after emitting shadow Deriveds, etc. See GHC.Tc.Solver.Monad
-Note [The improvement story and derived shadows]) we'll kick w1 out of the inert
+then we'll kick w1 out of the inert
 set (it mentions the LHS of w3). We then rewrite w1 to
 
-    [D] w4 : UnF (F a) ~ beta
+    [W] w4 : UnF (F a) ~ beta
 
 and then, using g1, to
 
-    [D] w5 : a ~ beta
+    [W] w5 : a ~ beta
 
 at which point we can unify and go on to glory. (This rewriting actually
 happens all at once, in the call to rewrite during canonicalisation.)
@@ -2148,9 +2112,6 @@ canEqCanLHSHetero ev eq_rel swapped lhs1 ki1 xi2 ki2
       CtWanted { ctev_rewriters = rewriters }
         -> newWantedEq kind_loc rewriters Nominal ki2 ki1
 
-      CtDerived {}
-        -> newWantedEq kind_loc emptyRewriterSet Nominal ki2 ki1
-
     xi1      = canEqLHSType lhs1
     loc      = ctev_loc ev
     role     = eqRelRole eq_rel
@@ -2219,7 +2180,7 @@ canEqCanLHS2 ev eq_rel swapped lhs1 ps_xi1 lhs2 ps_xi2 mco
   , TyFamLHS fun_tc2 fun_args2 <- lhs2
   = do { traceTcS "canEqCanLHS2 two type families" (ppr lhs1 $$ ppr lhs2)
 
-         -- emit derived equalities for injective type families
+         -- emit wanted equalities for injective type families
        ; let inj_eqns :: [TypeEqn]  -- TypeEqn = Pair Type
              inj_eqns
                | ReprEq <- eq_rel   = []   -- injectivity applies only for nom. eqs.
@@ -2252,8 +2213,11 @@ canEqCanLHS2 ev eq_rel swapped lhs1 ps_xi1 lhs2 ps_xi2 mco
                | otherwise  -- ordinary, non-injective type family
                = []
 
-       ; unless (isGiven ev) $
-         mapM_ (unifyDerived (ctEvLoc ev) Nominal) inj_eqns
+       ; case ev of
+           CtWanted { ctev_rewriters = rewriters } ->
+             mapM_ (\ (Pair t1 t2) -> unifyWanted rewriters (ctEvLoc ev) Nominal t1 t2) inj_eqns
+           CtGiven {} -> return ()
+             -- See Note [No Given/Given fundeps] in GHC.Tc.Solver.Interact
 
        ; tclvl <- getTcLevel
        ; let tvs1 = tyCoVarsOfTypes fun_args1
@@ -2584,7 +2548,7 @@ Consider this situation (from indexed-types/should_compile/GivenLoop):
 or (typecheck/should_compile/T19682b):
 
   instance C (a -> b)
-  *[WD] alpha ~ (Arg alpha -> Res alpha)
+  *[W] alpha ~ (Arg alpha -> Res alpha)
   [W] C alpha
 
 In order to solve the final Wanted, we must use the starred constraint
@@ -2607,17 +2571,15 @@ via new equality constraints. Our situations thus become:
 or
 
   instance C (a -> b)
-  [WD] alpha ~ (cbv1 -> cbv2)
-  [WD] Arg alpha ~ cbv1
-  [WD] Res alpha ~ cbv2
+  [W] alpha ~ (cbv1 -> cbv2)
+  [W] Arg alpha ~ cbv1
+  [W] Res alpha ~ cbv2
   [W] C alpha
 
 This transformation (creating the new types and emitting new equality
 constraints) is done in breakTyVarCycle_maybe.
 
-The details depend on whether we're working with a Given or a Derived.
-(Note that the Wanteds are really WDs, above. This is because Wanteds
-are not used for rewriting.)
+The details depend on whether we're working with a Given or a Wanted.
 
 Given
 -----
@@ -2661,19 +2623,19 @@ Note that
 * The evidence for the new `F a ~ cbv` constraint is Refl, because we know this fill-in is
   ultimately going to happen.
 
-Wanted/Derived
---------------
+Wanted
+------
 The fresh cycle-breaker variables here must actually be normal, touchable
 metavariables. That is, they are TauTvs. Nothing at all unusual. Repeating
 the example from above, we have
 
-  *[WD] alpha ~ (Arg alpha -> Res alpha)
+  *[W] alpha ~ (Arg alpha -> Res alpha)
 
 and we turn this into
 
-  *[WD] alpha ~ (cbv1 -> cbv2)
-  [WD] Arg alpha ~ cbv1
-  [WD] Res alpha ~ cbv2
+  *[W] alpha ~ (cbv1 -> cbv2)
+  [W] Arg alpha ~ cbv1
+  [W] Res alpha ~ cbv2
 
 where cbv1 and cbv2 are fresh TauTvs. Why TauTvs? See [Why TauTvs] below.
 
@@ -2687,11 +2649,11 @@ here (including further context from our original example, from the top of the
 Note):
 
   instance C (a -> b)
-  [WD] Arg (cbv1 -> cbv2) ~ cbv1
-  [WD] Res (cbv1 -> cbv2) ~ cbv2
+  [W] Arg (cbv1 -> cbv2) ~ cbv1
+  [W] Res (cbv1 -> cbv2) ~ cbv2
   [W] C (cbv1 -> cbv2)
 
-The first two WD constraints reduce to reflexivity and are discarded,
+The first two W constraints reduce to reflexivity and are discarded,
 and the last is easily soluble.
 
 [Why TauTvs]:
@@ -2709,43 +2671,43 @@ to unify the cbvs:
     AllEqF '[]      '[]      = ()
     AllEqF (x : xs) (y : ys) = (x ~ y, AllEq xs ys)
 
-  [WD] alpha ~ (Head alpha : Tail alpha)
-  [WD] AllEqF '[Bool] alpha
+  [W] alpha ~ (Head alpha : Tail alpha)
+  [W] AllEqF '[Bool] alpha
 
 Without the logic detailed in this Note, we're stuck here, as AllEqF cannot
 reduce and alpha cannot unify. Let's instead apply our cycle-breaker approach,
 just as described above. We thus invent cbv1 and cbv2 and unify
 alpha := cbv1 -> cbv2, yielding (after zonking)
 
-  [WD] Head (cbv1 : cbv2) ~ cbv1
-  [WD] Tail (cbv1 : cbv2) ~ cbv2
-  [WD] AllEqF '[Bool] (cbv1 : cbv2)
+  [W] Head (cbv1 : cbv2) ~ cbv1
+  [W] Tail (cbv1 : cbv2) ~ cbv2
+  [W] AllEqF '[Bool] (cbv1 : cbv2)
 
-The first two WD constraints simplify to reflexivity and are discarded.
+The first two W constraints simplify to reflexivity and are discarded.
 But the last reduces:
 
-  [WD] Bool ~ cbv1
-  [WD] AllEq '[] cbv2
+  [W] Bool ~ cbv1
+  [W] AllEq '[] cbv2
 
 The first of these is solved by unification: cbv1 := Bool. The second
 is solved by the instance for AllEq to become
 
-  [WD] AllEqF '[] cbv2
-  [WD] SameShapeAs '[] cbv2
+  [W] AllEqF '[] cbv2
+  [W] SameShapeAs '[] cbv2
 
 While the first of these is stuck, the second makes progress, to lead to
 
-  [WD] AllEqF '[] cbv2
-  [WD] cbv2 ~ '[]
+  [W] AllEqF '[] cbv2
+  [W] cbv2 ~ '[]
 
 This second constraint is solved by unification: cbv2 := '[]. We now
 have
 
-  [WD] AllEqF '[] '[]
+  [W] AllEqF '[] '[]
 
 which reduces to
 
-  [WD] ()
+  [W] ()
 
 which is trivially satisfiable. Hooray!
 
@@ -2762,8 +2724,7 @@ We detect this scenario by the following characteristics:
  - and a nominal equality
  - and either
     - a Given flavour (but see also Detail (7) below)
-    - a Wanted/Derived or just plain Derived flavour, with a touchable metavariable
-      on the left
+    - a Wanted flavour, with a touchable metavariable on the left
 
 We don't use this trick for representational equalities, as there is no
 concrete use case where it is helpful (unlike for nominal equalities).
@@ -2882,7 +2843,7 @@ Details:
 
      We track these equalities by giving them a special CtOrigin,
      CycleBreakerOrigin. This works for both Givens and WDs, as
-     we need the logic in the WD case for e.g. typecheck/should_fail/T17139.
+     we need the logic in the W case for e.g. typecheck/should_fail/T17139.
 
  (8) We really want to do this all only when there is a soluble occurs-check
      failure, not when other problems arise (such as an impredicative
@@ -2941,7 +2902,7 @@ rewriteEvidence :: RewriterSet  -- See Note [Wanteds rewrite Wanteds]
      rewriteEvidence old_ev new_pred co
 Main purpose: create new evidence for new_pred;
               unless new_pred is cached already
-* Returns a new_ev : new_pred, with same wanted/given/derived flag as old_ev
+* Returns a new_ev : new_pred, with same wanted/given flag as old_ev
 * If old_ev was wanted, create a binding for old_ev, in terms of new_ev
 * If old_ev was given, AND not cached, create a binding for new_ev, in terms of old_ev
 * Returns Nothing if new_ev is already cached
@@ -2950,7 +2911,7 @@ Main purpose: create new evidence for new_pred;
         flavour                                        of same flavor
         -------------------------------------------------------------------
         Wanted          Already solved or in inert     Nothing
-        or Derived      Not                            Just new_evidence
+                        Not                            Just new_evidence
 
         Given           Already in inert               Nothing
                         Not                            Just new_evidence
@@ -2966,17 +2927,6 @@ using new_pred.
 The rewriter preserves type synonyms, so they should appear in new_pred
 as well as in old_pred; that is important for good error messages.
  -}
-
-
-rewriteEvidence _rewriters old_ev@(CtDerived {}) new_pred _co
-  = -- If derived, don't even look at the coercion.
-    -- This is very important, DO NOT re-order the equations for
-    -- rewriteEvidence to put the isTcReflCo test first!
-    -- Why?  Because for *Derived* constraints, c, the coercion, which
-    -- was produced by rewriting, may contain suspended calls to
-    -- (ctEvExpr c), which fails for Derived constraints.
-    -- (Getting this wrong caused #7384.)
-    continueWith (old_ev { ctev_pred = new_pred })
 
 rewriteEvidence _rewriters old_ev new_pred co
   | isTcReflCo co -- See Note [Rewriting with Refl]
@@ -2994,13 +2944,9 @@ rewriteEvidence rewriters ev@(CtGiven { ctev_evar = old_evar, ctev_loc = loc }) 
 
 rewriteEvidence new_rewriters
                 ev@(CtWanted { ctev_dest = dest
-                             , ctev_nosh = si
                              , ctev_loc = loc
                              , ctev_rewriters = rewriters }) new_pred co
-  = do { mb_new_ev <- newWanted_SI si loc rewriters' new_pred
-               -- The "_SI" variant ensures that we make a new Wanted
-               -- with the same shadow-info as the existing one
-               -- with the same shadow-info as the existing one (#16735)
+  = do { mb_new_ev <- newWanted loc rewriters' new_pred
        ; massert (tcCoercionRole co == ctEvRole ev)
        ; setWantedEvTerm dest
             (mkEvCast (getEvExpr mb_new_ev)
@@ -3038,9 +2984,6 @@ rewriteEqEvidence :: RewriterSet        -- New rewriters
 --
 -- It's all a form of rewwriteEvidence, specialised for equalities
 rewriteEqEvidence new_rewriters old_ev swapped nlhs nrhs lhs_co rhs_co
-  | CtDerived {} <- old_ev  -- Don't force the evidence for a Derived
-  = return (old_ev { ctev_pred = new_pred })
-
   | NotSwapped <- swapped
   , isTcReflCo lhs_co      -- See Note [Rewriting with Refl]
   , isTcReflCo rhs_co
@@ -3053,13 +2996,10 @@ rewriteEqEvidence new_rewriters old_ev swapped nlhs nrhs lhs_co rhs_co
        ; newGivenEvVar loc' (new_pred, new_tm) }
 
   | CtWanted { ctev_dest = dest
-             , ctev_nosh = si
              , ctev_rewriters = rewriters } <- old_ev
   , let rewriters' = rewriters S.<> new_rewriters
-  = do { (new_ev, hole_co) <- newWantedEq_SI si loc' rewriters'
-                                             (ctEvRole old_ev) nlhs nrhs
-               -- The "_SI" variant ensures that we make a new Wanted
-               -- with the same shadow-info as the existing one (#16735)
+  = do { (new_ev, hole_co) <- newWantedEq loc' rewriters'
+                                          (ctEvRole old_ev) nlhs nrhs
        ; let co = maybeTcSymCo swapped $
                   mkSymCo lhs_co
                   `mkTransCo` hole_co
@@ -3092,11 +3032,10 @@ rewriteEqEvidence new_rewriters old_ev swapped nlhs nrhs lhs_co rhs_co
 *                                                                      *
 ************************************************************************
 
-Note [unifyWanted and unifyDerived]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Note [unifyWanted]
+~~~~~~~~~~~~~~~~~~
 When decomposing equalities we often create new wanted constraints for
 (s ~ t).  But what if s=t?  Then it'd be faster to return Refl right away.
-Similar remarks apply for Derived.
 
 Rather than making an equality test (which traverses the structure of the
 type, perhaps fruitlessly), unifyWanted traverses the common structure, and
@@ -3110,7 +3049,7 @@ unifyWanted :: RewriterSet -> CtLoc
 -- Return coercion witnessing the equality of the two types,
 -- emitting new work equalities where necessary to achieve that
 -- Very good short-cut when the two types are equal, or nearly so
--- See Note [unifyWanted and unifyDerived]
+-- See Note [unifyWanted]
 -- The returned coercion's role matches the input parameter
 unifyWanted rewriters loc Phantom ty1 ty2
   = do { kind_co <- unifyWanted rewriters loc Nominal (tcTypeKind ty1) (tcTypeKind ty2)
@@ -3154,47 +3093,3 @@ unifyWanted rewriters loc role orig_ty1 orig_ty2
        | ty1 `tcEqType` ty2 = return (mkTcReflCo role ty1)
         -- Check for equality; e.g. a ~ a, or (m a) ~ (m a)
        | otherwise = emitNewWantedEq loc rewriters role orig_ty1 orig_ty2
-
-unifyDeriveds :: CtLoc -> [Role] -> [TcType] -> [TcType] -> TcS ()
--- See Note [unifyWanted and unifyDerived]
-unifyDeriveds loc roles tys1 tys2 = zipWith3M_ (unify_derived loc) roles tys1 tys2
-
-unifyDerived :: CtLoc -> Role -> Pair TcType -> TcS ()
--- See Note [unifyWanted and unifyDerived]
-unifyDerived loc role (Pair ty1 ty2) = unify_derived loc role ty1 ty2
-
-unify_derived :: CtLoc -> Role -> TcType -> TcType -> TcS ()
--- Create new Derived and put it in the work list
--- Should do nothing if the two types are equal
--- See Note [unifyWanted and unifyDerived]
-unify_derived _   Phantom _        _        = return ()
-unify_derived loc role    orig_ty1 orig_ty2
-  = go orig_ty1 orig_ty2
-  where
-    go ty1 ty2 | Just ty1' <- tcView ty1 = go ty1' ty2
-    go ty1 ty2 | Just ty2' <- tcView ty2 = go ty1 ty2'
-
-    go (FunTy _ w1 s1 t1) (FunTy _ w2 s2 t2)
-      = do { unify_derived loc role s1 s2
-           ; unify_derived loc role t1 t2
-           ; unify_derived loc Nominal w1 w2 }
-    go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
-      | tc1 == tc2, tys1 `equalLength` tys2
-      , isInjectiveTyCon tc1 role
-      = unifyDeriveds loc (tyConRolesX role tc1) tys1 tys2
-    go ty1@(TyVarTy tv) ty2
-      = do { mb_ty <- isFilledMetaTyVar_maybe tv
-           ; case mb_ty of
-                Just ty1' -> go ty1' ty2
-                Nothing   -> bale_out ty1 ty2 }
-    go ty1 ty2@(TyVarTy tv)
-      = do { mb_ty <- isFilledMetaTyVar_maybe tv
-           ; case mb_ty of
-                Just ty2' -> go ty1 ty2'
-                Nothing   -> bale_out ty1 ty2 }
-    go ty1 ty2 = bale_out ty1 ty2
-
-    bale_out ty1 ty2
-       | ty1 `tcEqType` ty2 = return ()
-        -- Check for equality; e.g. a ~ a, or (m a) ~ (m a)
-       | otherwise = emitNewDerivedEq loc role orig_ty1 orig_ty2

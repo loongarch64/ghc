@@ -34,7 +34,6 @@ import GHC.Utils.Misc
 import GHC.Data.Maybe
 import GHC.Exts (oneShot)
 import Control.Monad
-import GHC.Utils.Monad ( zipWith3M )
 import Data.List ( find )
 
 import Control.Arrow ( first )
@@ -142,19 +141,6 @@ setEqRel new_eq_rel thing_inside
     else runRewriteM thing_inside (env { re_eq_rel = new_eq_rel })
 {-# INLINE setEqRel #-}
 
--- | Make sure that rewriting actually produces a coercion (in other
--- words, make sure our flavour is not Derived)
--- Note [No derived kind equalities]
-noBogusCoercions :: RewriteM a -> RewriteM a
-noBogusCoercions thing_inside
-  = mkRewriteM $ \env ->
-    -- No new thunk is made if the flavour hasn't changed (note the bang).
-    let !env' = case re_flavour env of
-          Derived -> env { re_flavour = Wanted WDeriv }
-          _       -> env
-    in
-    runRewriteM thing_inside env'
-
 bumpDepth :: RewriteM a -> RewriteM a
 bumpDepth (RewriteM thing_inside)
   = mkRewriteM $ \env -> do
@@ -227,14 +213,6 @@ soon throw out the phantoms when decomposing a TyConApp. (Or, the
 canonicaliser will emit an insoluble, in which case we get
 a better error message anyway.)
 
-Note [No derived kind equalities]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-A kind-level coercion can appear in types, via mkCastTy. So, whenever
-we are generating a coercion in a dependent context (in other words,
-in a kind) we need to make sure that our flavour is never Derived
-(as Derived constraints have no evidence). The noBogusCoercions function
-changes the flavour from Derived just for this purpose.
-
 -}
 
 {- *********************************************************************
@@ -269,9 +247,6 @@ rewriteArgsNom :: CtEvidence -> TyCon -> [TcType]
 -- The kind passed in is the kind of the type family or class, call it T
 -- The kind of T args must be constant (i.e. not depend on the args)
 --
--- For Derived constraints the returned coercion may be undefined
--- because rewriting may use a Derived equality ([D] a ~ ty)
---
 -- Final return value returned which Wanteds rewrote another Wanted
 -- See Note [Rewriting wanteds]
 rewriteArgsNom ev tc tys
@@ -291,7 +266,7 @@ rewriteType loc ty
   = do { ((xi, _), _) <- runRewrite loc Given NomEq $
                          rewrite_one ty
                      -- use Given flavor so that it is rewritten
-                     -- only w.r.t. Givens, never Wanteds/Deriveds
+                     -- only w.r.t. Givens, never Wanteds
                      -- (Shouldn't matter, if only Givens are present
                      -- anyway)
        ; return xi }
@@ -485,38 +460,20 @@ rewrite_args_slow :: [TyCoBinder] -> Kind -> TcTyCoVarSet
                   -> [Role] -> [Type]
                   -> RewriteM ([Xi], [Coercion], MCoercionN)
 rewrite_args_slow binders inner_ki fvs roles tys
--- Arguments used dependently must be rewritten with proper coercions, but
--- we're not guaranteed to get a proper coercion when rewriting with the
--- "Derived" flavour. So we must call noBogusCoercions when rewriting arguments
--- corresponding to binders that are dependent. However, we might legitimately
--- have *more* arguments than binders, in the case that the inner_ki is a variable
--- that gets instantiated with a Π-type. We conservatively choose not to produce
--- bogus coercions for these, too. Note that this might miss an opportunity for
--- a Derived rewriting a Derived. The solution would be to generate evidence for
--- Deriveds, thus avoiding this whole noBogusCoercions idea. See also
--- Note [No derived kind equalities]
-  = do { rewritten_args <- zipWith3M fl (map isNamedBinder binders ++ repeat True)
-                                        roles tys
+  = do { rewritten_args <- zipWithM fl roles tys
        ; return (simplifyArgsWorker binders inner_ki fvs roles rewritten_args) }
   where
     {-# INLINE fl #-}
-    fl :: Bool   -- must we ensure to produce a real coercion here?
-                  -- see comment at top of function
-       -> Role -> Type -> RewriteM (Xi, Coercion)
-    fl True  r ty = noBogusCoercions $ fl1 r ty
-    fl False r ty =                    fl1 r ty
-
-    {-# INLINE fl1 #-}
-    fl1 :: Role -> Type -> RewriteM (Xi, Coercion)
-    fl1 Nominal ty
+    fl :: Role -> Type -> RewriteM (Xi, Coercion)
+    fl Nominal ty
       = setEqRel NomEq $
         rewrite_one ty
 
-    fl1 Representational ty
+    fl Representational ty
       = setEqRel ReprEq $
         rewrite_one ty
 
-    fl1 Phantom ty
+    fl Phantom ty
     -- See Note [Phantoms in the rewriter]
       = do { ty <- liftTcS $ zonkTcType ty
            ; return (ty, mkReflCo Phantom ty) }
@@ -978,7 +935,7 @@ rewrite_tyvar2 tv fr@(_, eq_rel)
              | Just ct <- find can_rewrite equal_ct_list
              , CEqCan { cc_ev = ctev, cc_lhs = TyVarLHS tv
                       , cc_rhs = rhs_ty, cc_eq_rel = ct_eq_rel } <- ct
-             -> do { let wrw = ctFlavourRole ct `wantedRewriteWanted` fr
+             -> do { let wrw = isWantedCt ct
                    ; traceRewriteM "Following inert tyvar" $
                         vcat [ ppr tv <+> equals <+> ppr rhs_ty
                              , ppr ctev
@@ -995,9 +952,6 @@ rewrite_tyvar2 tv fr@(_, eq_rel)
                             (NomEq, ReprEq) -> mkSubCo rewrite_co1
 
                    ; return (RTRFollowed rhs_ty rewrite_co) }
-                    -- NB: ct is Derived then fmode must be also, hence
-                    -- we are not going to touch the returned coercion
-                    -- so ctEvCoercion is fine.
 
            _other -> return RTRNotFollowed }
 

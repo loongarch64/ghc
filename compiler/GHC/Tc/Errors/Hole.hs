@@ -66,7 +66,8 @@ import Data.List        ( partition, sort, sortOn, nubBy )
 import Data.Graph       ( graphFromEdges, topSort )
 
 
-import GHC.Tc.Solver    ( simplifyTopWanteds, runTcSDeriveds )
+import GHC.Tc.Solver    ( simplifyTopWanteds )
+import GHC.Tc.Solver.Monad ( runTcS )
 import GHC.Tc.Utils.Unify ( tcSubTypeSigma )
 
 import GHC.HsToCore.Docs ( extractDocs )
@@ -187,7 +188,7 @@ Here the nested implications are just one level deep, namely:
       Given = $dShow_a1pc :: Show a_a1pa[sk:2]
       Wanted =
         WC {wc_simple =
-              [WD] $dShow_a1pe {0}:: Show a0_a1pd[tau:2] (CDictCan(psc))}
+              [W] $dShow_a1pe {0}:: Show a0_a1pd[tau:2] (CDictCan(psc))}
       Binds = EvBindsVar<a1pi>
       Needed inner = []
       Needed outer = []
@@ -216,7 +217,7 @@ needing to check whether the following constraints are soluble.
           Given = $dShow_a1pc :: Show a_a1pa[sk:2]
           Wanted =
             WC {wc_simple =
-                  [WD] $dShow_a1pe {0}:: Show a0_a1pd[tau:2] (CNonCanonical)}
+                  [W] $dShow_a1pe {0}:: Show a0_a1pd[tau:2] (CNonCanonical)}
           Binds = EvBindsVar<a1pl>
           Needed inner = []
           Needed outer = []
@@ -359,7 +360,7 @@ as is the case in
 
 Here, the hole is given type a0_a1kv[tau:1]. Then, the emitted constraint is:
 
-  [WD] $dShow_a1kw {0}:: Show a0_a1kv[tau:1] (CNonCanonical)
+  [W] $dShow_a1kw {0}:: Show a0_a1kv[tau:1] (CNonCanonical)
 
 However, when there are multiple holes, we need to be more careful. As an
 example, Let's take a look at the following code:
@@ -371,8 +372,8 @@ Here there are two holes, `_a` and `_b`. Suppose _a :: a0_a1pd[tau:2] and
 _b :: a1_a1po[tau:2]. Then, the simple constraints passed to
 findValidHoleFits are:
 
-  [[WD] $dShow_a1pe {0}:: Show a0_a1pd[tau:2] (CNonCanonical),
-    [WD] $dShow_a1pp {0}:: Show a1_a1po[tau:2] (CNonCanonical)]
+  [[W] $dShow_a1pe {0}:: Show a0_a1pd[tau:2] (CNonCanonical),
+    [W] $dShow_a1pp {0}:: Show a1_a1po[tau:2] (CNonCanonical)]
 
 When we are looking for a match for the hole `_a`, we filter the simple
 constraints to the "Relevant constraints", by throwing out any constraints
@@ -979,7 +980,7 @@ tcCheckHoleFit (TypedHole {..}) hole_ty ty = discardErrs $
                      w_rel_cts = addSimples wanted (mapBag mkNonCanonical cloned_relevants)
                      final_wc  = foldr (setWCAndBinds fresh_binds) w_rel_cts outermost_first
                ; traceTc "final_wc is: " $ ppr final_wc
-               ; rem <- runTcSDeriveds $ simplifyTopWanteds final_wc
+               ; (rem, _) <- runTcS $ simplifyTopWanteds final_wc
                -- We don't want any insoluble or simple constraints left, but
                -- solved implications are ok (and necessary for e.g. undefined)
                ; traceTc "rems was:" $ ppr rem

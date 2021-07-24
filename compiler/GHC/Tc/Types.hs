@@ -1667,7 +1667,6 @@ Constraint Solver Plugins
 -}
 
 type TcPluginSolver = [Ct]    -- given
-                   -> [Ct]    -- derived
                    -> [Ct]    -- wanted
                    -> TcPluginM TcPluginResult
 

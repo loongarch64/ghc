@@ -6,7 +6,7 @@
 -- | Utility types used within the constraint solver
 module GHC.Tc.Solver.Types (
     -- Inert CDictCans
-    DictMap, emptyDictMap, findDictsByClass, addDict, addDictCt,
+    DictMap, emptyDictMap, findDictsByClass, addDict,
     addDictsByClass, delDict, foldDicts, filterDicts, findDict,
     dictsToBag, partitionDicts,
 
@@ -149,26 +149,6 @@ delDict m cls tys = delTcApp m (classTyCon cls) tys
 addDict :: DictMap a -> Class -> [Type] -> a -> DictMap a
 addDict m cls tys item = insertTcApp m (classTyCon cls) tys item
 
-addDictCt :: DictMap Ct -> Class -> [Type] -> Ct -> DictMap Ct
--- Like addDict, but combines [W] and [D] to [WD]
--- See Note [KeepBoth] in GHC.Tc.Solver.Interact
-addDictCt m cls tys new_ct = alterTcApp m (classTyCon cls) tys xt_ct
-  where
-    new_ct_ev = ctEvidence new_ct
-
-    xt_ct :: Maybe Ct -> Maybe Ct
-    xt_ct (Just old_ct)
-      | CtWanted { ctev_nosh = WOnly } <- old_ct_ev
-      , CtDerived {} <- new_ct_ev
-      = Just (old_ct { cc_ev = old_ct_ev { ctev_nosh = WDeriv }})
-      | CtDerived {} <- old_ct_ev
-      , CtWanted { ctev_nosh = WOnly } <- new_ct_ev
-      = Just (new_ct { cc_ev = new_ct_ev { ctev_nosh = WDeriv }})
-      where
-        old_ct_ev = ctEvidence old_ct
-
-    xt_ct _ = Just new_ct
-
 addDictsByClass :: DictMap Ct -> Class -> Bag Ct -> DictMap Ct
 addDictsByClass m cls items
   = extendDTyConEnv m (classTyCon cls) (foldr add emptyTM items)
@@ -253,7 +233,7 @@ findFunEq m tc tys = findTcApp m tc tys
 findFunEqsByTyCon :: FunEqMap a -> TyCon -> [a]
 -- Get inert function equation constraints that have the given tycon
 -- in their head.  Not that the constraints remain in the inert set.
--- We use this to check for derived interactions with built-in type-function
+-- We use this to check for wanted interactions with built-in type-function
 -- constructors.
 findFunEqsByTyCon m tc
   | Just tm <- lookupDTyConEnv m tc = foldTM (:) tm []

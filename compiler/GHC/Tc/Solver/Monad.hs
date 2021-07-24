@@ -14,7 +14,7 @@
 module GHC.Tc.Solver.Monad (
 
     -- The TcS monad
-    TcS, runTcS, runTcSDeriveds, runTcSWithEvBinds, runTcSInerts,
+    TcS, runTcS, runTcSWithEvBinds, runTcSInerts,
     failTcS, warnTcS, addErrTcS, wrapTcS,
     runTcSEqualities,
     nestTcS, nestImplicTcS, setEvBindsTcS,
@@ -40,16 +40,14 @@ module GHC.Tc.Solver.Monad (
     MaybeNew(..), freshGoals, isFresh, getEvExpr,
 
     newTcEvBinds, newNoTcEvBinds,
-    newWantedEq, newWantedEq_SI, emitNewWantedEq,
-    newWanted, newWanted_SI,
+    newWantedEq, emitNewWantedEq,
+    newWanted,
     newWantedNC, newWantedEvVarNC,
-    newDerivedNC,
     newBoundEvVarId,
     unifyTyVar, reportUnifications, touchabilityTest, TouchabilityTestResult(..),
     setEvBind, setWantedEq,
     setWantedEvTerm, setEvBindIfWanted,
     newEvVar, newGivenEvVar, newGivenEvVars,
-    emitNewDeriveds, emitNewDerivedEq,
     checkReductionDepth,
     getSolvedDicts, setSolvedDicts,
 
@@ -69,7 +67,6 @@ module GHC.Tc.Solver.Monad (
     removeInertCts, getPendingGivenScs,
     addInertCan, insertFunEq, addInertForAll,
     emitWorkNC, emitWork,
-    isImprovable,
     lookupInertDict,
 
     -- The Model
@@ -183,356 +180,6 @@ import GHC.Data.Graph.Directed
 
 {- *********************************************************************
 *                                                                      *
-             Shadow constraints and improvement
-*                                                                      *
-************************************************************************
-
-Note [The improvement story and derived shadows]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Because Wanteds cannot rewrite Wanteds (see Note [Wanteds do not
-rewrite Wanteds] in GHC.Tc.Types.Constraint), we may miss some opportunities for
-solving.  Here's a classic example (indexed-types/should_fail/T4093a)
-
-    Ambiguity check for f: (Foo e ~ Maybe e) => Foo e
-
-    We get [G] Foo e ~ Maybe e    (CEqCan)
-           [W] Foo ee ~ Foo e     (CEqCan)       -- ee is a unification variable
-           [W] Foo ee ~ Maybe ee  (CEqCan)
-
-    The first Wanted gets rewritten to
-
-           [W] Foo ee ~ Maybe e
-
-    But now we appear to be stuck, since we don't rewrite Wanteds with
-    Wanteds.  This is silly because we can see that ee := e is the
-    only solution.
-
-The basic plan is
-  * generate Derived constraints that shadow Wanted constraints
-  * allow Derived to rewrite Derived
-  * in order to cause some unifications to take place
-  * that in turn solve the original Wanteds
-
-The ONLY reason for all these Derived equalities is to tell us how to
-unify a variable: that is, what Mark Jones calls "improvement".
-
-The same idea is sometimes also called "saturation"; find all the
-equalities that must hold in any solution.
-
-Or, equivalently, you can think of the derived shadows as implementing
-the "model": a non-idempotent but no-occurs-check substitution,
-reflecting *all* *Nominal* equalities (a ~N ty) that are not
-immediately soluble by unification.
-
-More specifically, here's how it works (Oct 16):
-
-* Wanted constraints are born as [WD]; this behaves like a
-  [W] and a [D] paired together.
-
-* When we are about to add a [WD] to the inert set, if it can
-  be rewritten by a [D] a ~ ty, then we split it into [W] and [D],
-  putting the latter into the work list (see maybeEmitShadow).
-
-In the example above, we get to the point where we are stuck:
-    [WD] Foo ee ~ Foo e
-    [WD] Foo ee ~ Maybe ee
-
-But now when [WD] Foo ee ~ Maybe ee is about to be added, we'll
-split it into [W] and [D], since the inert [WD] Foo ee ~ Foo e
-can rewrite it.  Then:
-    work item: [D] Foo ee ~ Maybe ee
-    inert:     [W] Foo ee ~ Maybe ee
-               [WD] Foo ee ~ Maybe e
-
-See Note [Splitting WD constraints].  Now the work item is rewritten
-by the [WD] and we soon get ee := e.
-
-Additional notes:
-
-  * The derived shadow equalities live in inert_eqs, along with
-    the Givens and Wanteds; see Note [EqualCtList invariants]
-    in GHC.Tc.Solver.Types.
-
-  * We make Derived shadows only for Wanteds, not Givens.  So we
-    have only [G], not [GD] and [G] plus splitting.  See
-    Note [Add derived shadows only for Wanteds]
-
-  * We also get Derived equalities from functional dependencies
-    and type-function injectivity; see calls to unifyDerived.
-
-  * It's worth having [WD] rather than just [W] and [D] because
-    * efficiency: silly to process the same thing twice
-    * inert_dicts is a finite map keyed by
-      the type; it's inconvenient for it to map to TWO constraints
-
-Another example requiring Deriveds is in
-Note [Put touchable variables on the left] in GHC.Tc.Solver.Canonical.
-
-Note [Splitting WD constraints]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We are about to add a [WD] constraint to the inert set; and we
-know that the inert set has fully rewritten it.  Should we split
-it into [W] and [D], and put the [D] in the work list for further
-work?
-
-* CDictCan (C tys):
-  Yes if the inert set could rewrite tys to make the class constraint,
-  or type family, fire.  That is, yes if the inert_eqs intersects
-  with the free vars of tys.  For this test we use
-  (anyRewritableTyVar True) which ignores casts and coercions in tys,
-  because rewriting the casts or coercions won't make the thing fire
-  more often.
-
-* CEqCan (lhs ~ ty): Yes if the inert set could rewrite 'lhs' or 'ty'.
-  We need to check both 'lhs' and 'ty' against the inert set:
-    - Inert set contains  [D] a ~ ty2
-      Then we want to put [D] a ~ ty in the worklist, so we'll
-      get [D] ty ~ ty2 with consequent good things
-
-    - Inert set contains [D] b ~ a, where b is in ty.
-      We can't just add [WD] a ~ ty[b] to the inert set, because
-      that breaks the inert-set invariants.  If we tried to
-      canonicalise another [D] constraint mentioning 'a', we'd
-      get an infinite loop
-
-  Moreover we must use (anyRewritableTyVar False) for the RHS,
-  because even tyvars in the casts and coercions could give
-  an infinite loop if we don't expose it
-
-* CIrredCan: Yes if the inert set can rewrite the constraint.
-  We used to think splitting irreds was unnecessary, but
-  see Note [Splitting Irred WD constraints]
-
-* Others: nothing is gained by splitting.
-
-Note [Splitting Irred WD constraints]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Splitting Irred constraints can make a difference. Here is the
-scenario:
-
-  a[sk] :: F v     -- F is a type family
-  beta :: alpha
-
-  work item: [WD] a ~ beta
-
-This is heterogeneous, so we emit a kind equality and make the work item an
-inert Irred.
-
-  work item: [D] F v ~ alpha
-  inert: [WD] (a |> co) ~ beta (CIrredCan)
-
-Can't make progress on the work item. Add to inert set. This kicks out the
-old inert, because a [D] can rewrite a [WD].
-
-  work item: [WD] (a |> co) ~ beta
-  inert: [D] F v ~ alpha (CEqCan)
-
-Can't make progress on this work item either (although GHC tries by
-decomposing the cast and rewriting... but that doesn't make a difference),
-which is still hetero. Emit a new kind equality and add to inert set. But,
-critically, we split the Irred.
-
-  work list:
-   [D] F v ~ alpha (CEqCan)
-   [D] (a |> co) ~ beta (CIrred) -- this one was split off
-  inert:
-   [W] (a |> co) ~ beta
-   [D] F v ~ alpha
-
-We quickly solve the first work item, as it's the same as an inert.
-
-  work item: [D] (a |> co) ~ beta
-  inert:
-   [W] (a |> co) ~ beta
-   [D] F v ~ alpha
-
-We decompose the cast, yielding
-
-  [D] a ~ beta
-
-We then rewrite the kinds. The lhs kind is F v, which flattens to alpha.
-
-  co' :: F v ~ alpha
-  [D] (a |> co') ~ beta
-
-Now this equality is homo-kinded. So we swizzle it around to
-
-  [D] beta ~ (a |> co')
-
-and set beta := a |> co', and go home happy.
-
-If we don't split the Irreds, we loop. This is all dangerously subtle.
-
-This is triggered by test case typecheck/should_compile/SplitWD.
-
-Note [Add derived shadows only for Wanteds]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We only add shadows for Wanted constraints. That is, we have
-[WD] but not [GD]; and maybeEmitShaodw looks only at [WD]
-constraints.
-
-It does just possibly make sense ot add a derived shadow for a
-Given. If we created a Derived shadow of a Given, it could be
-rewritten by other Deriveds, and that could, conceivably, lead to a
-useful unification.
-
-But (a) I have been unable to come up with an example of this
-        happening
-    (b) see #12660 for how adding the derived shadows
-        of a Given led to an infinite loop.
-    (c) It's unlikely that rewriting derived Givens will lead
-        to a unification because Givens don't mention touchable
-        unification variables
-
-For (b) there may be other ways to solve the loop, but simply
-reraining from adding derived shadows of Givens is particularly
-simple.  And it's more efficient too!
-
-Still, here's one possible reason for adding derived shadows
-for Givens.  Consider
-           work-item [G] a ~ [b], inerts has [D] b ~ a.
-If we added the derived shadow (into the work list)
-         [D] a ~ [b]
-When we process it, we'll rewrite to a ~ [a] and get an
-occurs check.  Without it we'll miss the occurs check (reporting
-inaccessible code); but that's probably OK.
-
-Note [Keep CDictCan shadows as CDictCan]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Suppose we have
-  class C a => D a b
-and [G] D a b, [G] C a in the inert set.  Now we insert
-[D] b ~ c.  We want to kick out a derived shadow for [D] D a b,
-so we can rewrite it with the new constraint, and perhaps get
-instance reduction or other consequences.
-
-BUT we do not want to kick out a *non-canonical* (D a b). If we
-did, we would do this:
-  - rewrite it to [D] D a c, with pend_sc = True
-  - use expandSuperClasses to add C a
-  - go round again, which solves C a from the givens
-This loop goes on for ever and triggers the simpl_loop limit.
-
-Solution: kick out the CDictCan which will have pend_sc = False,
-because we've already added its superclasses.  So we won't re-add
-them.  If we forget the pend_sc flag, our cunning scheme for avoiding
-generating superclasses repeatedly will fail.
-
-See #11379 for a case of this.
-
-Note [Do not do improvement for WOnly]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We do improvement between two constraints (e.g. for injectivity
-or functional dependencies) only if both are "improvable". And
-we improve a constraint wrt the top-level instances only if
-it is improvable.
-
-Improvable:     [G] [WD] [D}
-Not improvable: [W]
-
-Reasons:
-
-* It's less work: fewer pairs to compare
-
-* Every [W] has a shadow [D] so nothing is lost
-
-* Consider [WD] C Int b,  where 'b' is a skolem, and
-    class C a b | a -> b
-    instance C Int Bool
-  We'll do a fundep on it and emit [D] b ~ Bool
-  That will kick out constraint [WD] C Int b
-  Then we'll split it to [W] C Int b (keep in inert)
-                     and [D] C Int b (in work list)
-  When processing the latter we'll rewrite it to
-        [D] C Int Bool
-  At that point it would be /stupid/ to interact it
-  with the inert [W] C Int b in the inert set; after all,
-  it's the very constraint from which the [D] C Int Bool
-  was split!  We can avoid this by not doing improvement
-  on [W] constraints. This came up in #12860.
--}
-
-maybeEmitShadow :: InertCans -> Ct -> TcS Ct
--- See Note [The improvement story and derived shadows]
-maybeEmitShadow ics ct
-  | let ev = ctEvidence ct
-  , CtWanted { {- "RAE" ctev_pred = pred, ctev_loc = loc
-             , -} ctev_nosh = WDeriv } <- ev
-  , shouldSplitWD (inert_eqs ics) (inert_funeqs ics) ct
-  = do { traceTcS "RAE: NO: Emit derived shadow" (ppr ct)
-    {-   ; let derived_ev = CtDerived { ctev_pred = pred
-                                    , ctev_loc  = loc }
-             shadow_ct = ct { cc_ev = derived_ev }
-               -- Te shadow constraint keeps the canonical shape.
-               -- This just saves work, but is sometimes important;
-               -- see Note [Keep CDictCan shadows as CDictCan]
-       ; emitWork [shadow_ct] -}
-
-       ; let ev' = ev { ctev_nosh = WOnly }
-             ct' = ct { cc_ev = ev' }
-                 -- Record that it now has a shadow
-                 -- This is /the/ place we set the flag to WOnly
-       ; return ct' }
-
-  | otherwise
-  = return ct
-
-shouldSplitWD :: InertEqs -> FunEqMap EqualCtList -> Ct -> Bool
--- Precondition: 'ct' is [WD], and is inert
--- True <=> we should split ct ito [W] and [D] because
---          the inert_eqs can make progress on the [D]
--- See Note [Splitting WD constraints]
-
-shouldSplitWD inert_eqs fun_eqs (CDictCan { cc_tyargs = tys })
-  = should_split_match_args inert_eqs fun_eqs tys
-    -- NB True: ignore coercions
-    -- See Note [Splitting WD constraints]
-
-shouldSplitWD inert_eqs fun_eqs (CEqCan { cc_lhs = TyVarLHS tv, cc_rhs = ty
-                                        , cc_eq_rel = eq_rel })
-  =  tv `elemDVarEnv` inert_eqs
-  || anyRewritableCanEqLHS eq_rel (canRewriteTv inert_eqs) (canRewriteTyFam fun_eqs) ty
-  -- NB False: do not ignore casts and coercions
-  -- See Note [Splitting WD constraints]
-
-shouldSplitWD inert_eqs fun_eqs (CEqCan { cc_ev = ev, cc_eq_rel = eq_rel })
-  = anyRewritableCanEqLHS eq_rel (canRewriteTv inert_eqs) (canRewriteTyFam fun_eqs)
-                          (ctEvPred ev)
-
-shouldSplitWD inert_eqs fun_eqs (CIrredCan { cc_ev = ev })
-  = anyRewritableCanEqLHS (ctEvEqRel ev) (canRewriteTv inert_eqs)
-                          (canRewriteTyFam fun_eqs) (ctEvPred ev)
-
-shouldSplitWD _ _ _ = False   -- No point in splitting otherwise
-
-should_split_match_args :: InertEqs -> FunEqMap EqualCtList -> [TcType] -> Bool
--- True if the inert_eqs can rewrite anything in the argument types
-should_split_match_args inert_eqs fun_eqs tys
-  = any (anyRewritableCanEqLHS NomEq (canRewriteTv inert_eqs) (canRewriteTyFam fun_eqs)) tys
-    -- See Note [Splitting WD constraints]
-
-canRewriteTv :: InertEqs -> EqRel -> TyVar -> Bool
-canRewriteTv inert_eqs eq_rel tv
-  | Just ecl <- lookupDVarEnv inert_eqs tv
-  = any (\ct -> ctEqRel ct `eqCanRewrite` eq_rel) ecl
-  | otherwise
-  = False
-
-canRewriteTyFam :: FunEqMap EqualCtList -> EqRel -> TyCon -> [Type] -> Bool
-canRewriteTyFam fun_eqs eq_rel tf args
-  | Just ecl <- findFunEq fun_eqs tf args
-  = any (\ct -> ctEqRel ct `eqCanRewrite` eq_rel) ecl
-  | otherwise
-  = False
-
-isImprovable :: CtEvidence -> Bool
--- See Note [Do not do improvement for WOnly]
-isImprovable (CtWanted { ctev_nosh = WOnly }) = False
-isImprovable _                                = True
-
-
-{- *********************************************************************
-*                                                                      *
                    Inert instances: inert_insts
 *                                                                      *
 ********************************************************************* -}
@@ -599,9 +246,6 @@ Note [Adding an equality to the InertCans]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 When adding an equality to the inerts:
 
-* Split [WD] into [W] and [D] if the inerts can rewrite the latter;
-  done by maybeEmitShadow.
-
 * Kick out any constraints that can be rewritten by the thing
   we are adding.  Done by kickOutRewritable.
 
@@ -634,7 +278,6 @@ addInertCan ct
          text "Trying to insert new inert item:" <+> ppr ct
 
        ; ics <- getInertCans
-       ; ct  <- maybeEmitShadow ics ct
        ; ics <- maybeKickOut ics ct
        ; tclvl <- getTcLevel
        ; setInertCans (addInertItem tclvl ics ct)
@@ -753,7 +396,7 @@ kickOutAfterFillingCoercionHole hole
 --------------
 addInertSafehask :: InertCans -> Ct -> InertCans
 addInertSafehask ics item@(CDictCan { cc_class = cls, cc_tyargs = tys })
-  = ics { inert_safehask = addDictCt (inert_dicts ics) cls tys item }
+  = ics { inert_safehask = addDict (inert_dicts ics) cls tys item }
 
 addInertSafehask _ item
   = pprPanic "addInertSafehask: can't happen! Inserting " $ ppr item
@@ -895,7 +538,7 @@ get_sc_pending this_lvl ic@(IC { inert_dicts = dicts, inert_insts = insts })
 
     add :: Ct -> DictMap Ct -> DictMap Ct
     add ct@(CDictCan { cc_class = cls, cc_tyargs = tys }) dicts
-        = addDictCt dicts cls tys ct
+        = addDict dicts cls tys ct
     add ct _ = pprPanic "getPendingScDicts" (ppr ct)
 
     get_pending_inst :: [Ct] -> QCInst -> ([Ct], QCInst)
@@ -912,7 +555,7 @@ get_sc_pending this_lvl ic@(IC { inert_dicts = dicts, inert_insts = insts })
 
 getUnsolvedInerts :: TcS ( Bag Implication
                          , Cts )   -- All simple constraints
--- Return all the unsolved [Wanted] or [Derived] constraints
+-- Return all the unsolved [Wanted] constraints
 --
 -- Post-condition: the returned simple constraints are all fully zonked
 --                     (because they come from the inert set)
@@ -926,7 +569,7 @@ getUnsolvedInerts
 
       ; let unsolved_tv_eqs  = foldTyEqs add_if_unsolved tv_eqs emptyCts
             unsolved_fun_eqs = foldFunEqs add_if_unsolveds fun_eqs emptyCts
-            unsolved_irreds  = Bag.filterBag is_unsolved irreds
+            unsolved_irreds  = Bag.filterBag isWantedCt irreds
             unsolved_dicts   = foldDicts add_if_unsolved idicts emptyCts
             unsolved_others  = unionManyBags [ unsolved_irreds
                                              , unsolved_dicts ]
@@ -944,13 +587,11 @@ getUnsolvedInerts
                           unsolved_others) }
   where
     add_if_unsolved :: Ct -> Cts -> Cts
-    add_if_unsolved ct cts | is_unsolved ct = ct `consCts` cts
-                           | otherwise      = cts
+    add_if_unsolved ct cts | isWantedCt ct = ct `consCts` cts
+                           | otherwise     = cts
 
     add_if_unsolveds :: EqualCtList -> Cts -> Cts
     add_if_unsolveds new_cts old_cts = foldr add_if_unsolved old_cts new_cts
-
-    is_unsolved ct = not (isGivenCt ct)   -- Wanted or Derived
 
 getHasGivenEqs :: TcLevel           -- TcLevel of this implication
                -> TcS ( HasGivenEqs -- are there Given equalities?
@@ -980,15 +621,8 @@ getHasGivenEqs tclvl
               , text "Insols:" <+> ppr insols]
        ; return (has_ge, insols) }
 
-{- Note [Unsolved Derived equalities]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-In getUnsolvedInerts, we return a derived equality from the inert_eqs
-because it is a candidate for floating out of this implication.  We
-only float equalities with a meta-tyvar on the left, so we only pull
-those out here.
-
-Note [What might equal later?]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+{- Note [What might equal later?]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We must determine whether a Given might later equal a Wanted. We
 definitely need to account for the possibility that any metavariable
 might be arbitrarily instantiated. Yet we do *not* want
@@ -1150,7 +784,6 @@ extendFamAppCache tc xi_args stuff@(_, ty)
        ; when (gopt Opt_FamAppCache dflags) $
     do { traceTcS "extendFamAppCache" (vcat [ ppr tc <+> ppr xi_args
                                             , ppr ty ])
-            -- 'co' can be bottom, in the case of derived items
        ; updInertTcS $ \ is@(IS { inert_famapp_cache = fc }) ->
             is { inert_famapp_cache = insertFunEq fc tc xi_args stuff } } }
 
@@ -1328,13 +961,6 @@ runTcS tcs
        ; res <- runTcSWithEvBinds ev_binds_var tcs
        ; ev_binds <- TcM.getTcEvBindsMap ev_binds_var
        ; return (res, ev_binds) }
--- | This variant of 'runTcS' will keep solving, even when only Deriveds
--- are left around. It also doesn't return any evidence, as callers won't
--- need it.
-runTcSDeriveds :: TcS a -> TcM a
-runTcSDeriveds tcs
-  = do { ev_binds_var <- TcM.newTcEvBinds
-       ; runTcSWithEvBinds ev_binds_var tcs }
 
 -- | This can deal only with equality constraints.
 runTcSEqualities :: TcS a -> TcM a
@@ -1898,7 +1524,7 @@ an example:
   * There's a deeply-nested chain of implication constraints.
        ?x:alpha => ?y1:beta1 => ... ?yn:betan => [W] ?x:Int
 
-  * From the innermost one we get a [D] alpha[1] ~ Int,
+  * From the innermost one we get a [W] alpha[1] ~ Int,
     so we can unify.
 
   * It's better not to iterate the inner implications, but go all the
@@ -2113,17 +1739,10 @@ emitNewWantedEq loc rewriters role ty1 ty2
 newWantedEq :: CtLoc -> RewriterSet -> Role -> TcType -> TcType
             -> TcS (CtEvidence, Coercion)
 newWantedEq loc rewriters role ty1 ty2
-  = newWantedEq_SI WDeriv loc rewriters role ty1 ty2
-
-newWantedEq_SI :: ShadowInfo -> CtLoc -> RewriterSet -> Role
-               -> TcType -> TcType
-               -> TcS (CtEvidence, Coercion)
-newWantedEq_SI si loc rewriters role ty1 ty2
   = do { hole <- wrapTcS $ TcM.newCoercionHole pty
        ; traceTcS "Emitting new coercion hole" (ppr hole <+> dcolon <+> ppr pty)
        ; return ( CtWanted { ctev_pred      = pty
                            , ctev_dest      = HoleDest hole
-                           , ctev_nosh      = si
                            , ctev_loc       = loc
                            , ctev_rewriters = rewriters }
                 , mkHoleCo hole ) }
@@ -2133,46 +1752,36 @@ newWantedEq_SI si loc rewriters role ty1 ty2
 -- no equalities here. Use newWantedEq instead
 newWantedEvVarNC :: CtLoc -> RewriterSet
                  -> TcPredType -> TcS CtEvidence
-newWantedEvVarNC = newWantedEvVarNC_SI WDeriv
-
-newWantedEvVarNC_SI :: ShadowInfo -> CtLoc -> RewriterSet
-                    -> TcPredType -> TcS CtEvidence
 -- Don't look up in the solved/inerts; we know it's not there
-newWantedEvVarNC_SI si loc rewriters pty
+newWantedEvVarNC loc rewriters pty
   = do { new_ev <- newEvVar pty
        ; traceTcS "Emitting new wanted" (ppr new_ev <+> dcolon <+> ppr pty $$
                                          pprCtLoc loc)
        ; return (CtWanted { ctev_pred      = pty
                           , ctev_dest      = EvVarDest new_ev
-                          , ctev_nosh      = si
                           , ctev_loc       = loc
                           , ctev_rewriters = rewriters })}
 
-newWantedEvVar_SI :: ShadowInfo -> CtLoc -> RewriterSet
-                  -> TcPredType -> TcS MaybeNew
+newWantedEvVar :: CtLoc -> RewriterSet
+               -> TcPredType -> TcS MaybeNew
 -- For anything except ClassPred, this is the same as newWantedEvVarNC
-newWantedEvVar_SI si loc rewriters pty
+newWantedEvVar loc rewriters pty
   = do { mb_ct <- lookupInInerts loc pty
        ; case mb_ct of
             Just ctev
-              | not (isDerived ctev)
               -> do { traceTcS "newWantedEvVar/cache hit" $ ppr ctev
                     ; return $ Cached (ctEvExpr ctev) }
-            _ -> do { ctev <- newWantedEvVarNC_SI si loc rewriters pty
+            _ -> do { ctev <- newWantedEvVarNC loc rewriters pty
                     ; return (Fresh ctev) } }
 
 newWanted :: CtLoc -> RewriterSet -> PredType -> TcS MaybeNew
 -- Deals with both equalities and non equalities. Tries to look
 -- up non-equalities in the cache
-newWanted = newWanted_SI WDeriv
-
-newWanted_SI :: ShadowInfo -> CtLoc -> RewriterSet
-             -> PredType -> TcS MaybeNew
-newWanted_SI si loc rewriters pty
+newWanted loc rewriters pty
   | Just (role, ty1, ty2) <- getEqPredTys_maybe pty
-  = Fresh . fst <$> newWantedEq_SI si loc rewriters role ty1 ty2
+  = Fresh . fst <$> newWantedEq loc rewriters role ty1 ty2
   | otherwise
-  = newWantedEvVar_SI si loc rewriters pty
+  = newWantedEvVar loc rewriters pty
 
 -- deals with both equalities and non equalities. Doesn't do any cache lookups.
 newWantedNC :: CtLoc -> RewriterSet -> PredType -> TcS CtEvidence
@@ -2181,30 +1790,6 @@ newWantedNC loc rewriters pty
   = fst <$> newWantedEq loc rewriters role ty1 ty2
   | otherwise
   = newWantedEvVarNC loc rewriters pty
-
-emitNewDeriveds :: CtLoc -> [TcPredType] -> TcS ()
-emitNewDeriveds loc preds
-  | null preds
-  = return ()
-  | otherwise
-  = do { evs <- mapM (newDerivedNC loc emptyRewriterSet) preds
-       ; traceTcS "Emitting new deriveds" (ppr evs)
-       ; updWorkListTcS (extendWorkListDeriveds evs) }
-
-emitNewDerivedEq :: CtLoc -> Role -> TcType -> TcType -> TcS ()
--- Create new equality Derived and put it in the work list
--- There's no caching, no lookupInInerts
-emitNewDerivedEq loc role ty1 ty2
-  = do { ev <- newDerivedNC loc emptyRewriterSet (mkPrimEqPredRole role ty1 ty2)
-       ; traceTcS "Emitting new derived equality" (ppr ev $$ pprCtLoc loc)
-       ; updWorkListTcS (extendWorkListEq (mkNonCanonical ev)) }
-         -- Very important: put in the wl_eqs
-         -- See Note [Prioritise equalities] in GHC.Tc.Solver.InertSet
-         -- (Avoiding fundep iteration)
-
-newDerivedNC :: CtLoc -> RewriterSet -> TcPredType -> TcS CtEvidence
-newDerivedNC = newWantedNC {- "RAE"
-  = do { return (CtDerived { ctev_pred = pred, ctev_loc = loc }) } -}
 
 -- --------- Check done in GHC.Tc.Solver.Interact.selectNewWorkItem???? ---------
 -- | Checks if the depth of the given location is too much. Fails if
@@ -2298,16 +1883,12 @@ breakTyVarCycle_maybe ev cte_result (TyVarLHS lhs_tv) rhs
     flavour = ctEvFlavour ev
     eq_rel  = ctEvEqRel ev
 
-    final_check
-      | Given <- flavour
-      = return True
-      | ctFlavourContainsDerived flavour
-      = do { result <- touchabilityTest Derived lhs_tv rhs
-           ; return $ case result of
-               Untouchable -> False
-               _           -> True }
-      | otherwise
-      = return False
+    final_check = case flavour of
+      Given  -> return True
+      Wanted -> do { result <- touchabilityTest Wanted lhs_tv rhs
+                   ; return $ case result of
+                       Untouchable -> False
+                       _           -> True }
 
     -- This could be considerably more efficient. See Detail (5) of Note.
     go :: TcType -> TcS (CoercionN, TcType)
@@ -2369,7 +1950,7 @@ breakTyVarCycle_maybe ev cte_result (TyVarLHS lhs_tv) rhs
            ; return (mkNomReflCo new_ty, new_ty) }
                 -- Why reflexive? See Detail (4) of the Note
 
-      _derived_or_wd ->
+      Wanted ->
         do { new_tv <- wrapTcS (TcM.newFlexiTyVar fun_app_kind)
            ; let new_ty = mkTyVarTy new_tv
            ; co <- emitNewWantedEq new_loc (ctEvRewriters ev) Nominal new_ty fun_app

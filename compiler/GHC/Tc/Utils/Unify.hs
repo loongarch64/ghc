@@ -1048,7 +1048,7 @@ take care:
   can yield /very/ confusing error messages, because we can get
       [W] C Int b1    -- from f_blah
       [W] C Int b2    -- from g_blan
-  and fundpes can yield [D] b1 ~ b2, even though the two functions have
+  and fundpes can yield [W] b1 ~ b2, even though the two functions have
   literally nothing to do with each other.  #14185 is an example.
   Building an implication keeps them separate.
 -}

@@ -22,8 +22,8 @@ module GHC.Tc.Solver(
        promoteTyVarSet, simplifyAndEmitFlatConstraints,
 
        -- For Rules we need these
-       solveWanteds, solveWantedsAndDrop,
-       approximateWC, runTcSDeriveds
+       solveWanteds,
+       approximateWC
   ) where
 
 import GHC.Prelude
@@ -455,7 +455,7 @@ reportUnsolvedEqualities skol_info skol_tvs tclvl wanted
 simplifyTopWanteds :: WantedConstraints -> TcS WantedConstraints
     -- See Note [Top-level Defaulting Plan]
 simplifyTopWanteds wanteds
-  = do { wc_first_go <- nestTcS (solveWantedsAndDrop wanteds)
+  = do { wc_first_go <- nestTcS (solveWanteds wanteds)
                             -- This is where the main work happens
        ; dflags <- getDynFlags
        ; try_tyvar_defaulting dflags wc_first_go }
@@ -490,7 +490,7 @@ simplifyTopWanteds wanteds
       = do { something_happened <- applyDefaultingRules wc
                                    -- See Note [Top-level Defaulting Plan]
            ; if something_happened
-             then do { wc_residual <- nestTcS (solveWantedsAndDrop wc)
+             then do { wc_residual <- nestTcS (solveWanteds wc)
                      ; try_class_defaulting wc_residual }
                   -- See Note [Overview of implicit CallStacks] in GHC.Tc.Types.Evidence
              else try_callstack_defaulting wc }
@@ -723,7 +723,7 @@ How is this implemented? It's complicated! So we'll step through it all:
 Note [No defaulting in the ambiguity check]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 When simplifying constraints for the ambiguity check, we use
-solveWantedsAndDrop, not simplifyTopWanteds, so that we do no defaulting.
+solveWanteds, not simplifyTopWanteds, so that we do no defaulting.
 #11947 was an example:
    f :: Num a => Int -> Int
 This is ambiguous of course, but we don't want to default the
@@ -779,7 +779,7 @@ is not set.
 simplifyAmbiguityCheck :: Type -> WantedConstraints -> TcM ()
 simplifyAmbiguityCheck ty wanteds
   = do { traceTc "simplifyAmbiguityCheck {" (text "type = " <+> ppr ty $$ text "wanted = " <+> ppr wanteds)
-       ; (final_wc, _) <- runTcS $ solveWantedsAndDrop wanteds
+       ; (final_wc, _) <- runTcS $ solveWanteds wanteds
              -- NB: no defaulting!  See Note [No defaulting in the ambiguity check]
 
        ; traceTc "End simplifyAmbiguityCheck }" empty
@@ -807,7 +807,7 @@ simplifyDefault :: ThetaType    -- Wanted; has no type variables in it
 simplifyDefault theta
   = do { traceTc "simplifyDefault" empty
        ; wanteds  <- newWanteds DefaultOrigin theta
-       ; unsolved <- runTcSDeriveds (solveWantedsAndDrop (mkSimpleWC wanteds))
+       ; (unsolved, _) <- runTcS (solveWanteds (mkSimpleWC wanteds))
        ; return (isEmptyWC unsolved) }
 
 ------------------
@@ -848,7 +848,7 @@ tcCheckWanteds inerts wanteds = do
   (sat, _new_inerts) <- runTcSInerts inerts $ do
     traceTcS "checkWanteds {" (ppr inerts <+> ppr wanteds)
     -- See Note [Superclasses and satisfiability]
-    wcs <- solveWantedsAndDrop (mkSimpleWC cts)
+    wcs <- solveWanteds (mkSimpleWC cts)
     traceTcS "checkWanteds }" (ppr wcs)
     return (isSolvedWC wcs)
   return sat
@@ -1041,7 +1041,7 @@ simplifyInfer rhs_tclvl infer_mode sigs name_taus wanteds
 
        ; ev_binds_var <- TcM.newTcEvBinds
        ; psig_evs     <- newWanteds AnnOrigin psig_theta
-       ; wanted_transformed_incl_derivs
+       ; wanted_transformed
             <- setTcLevel rhs_tclvl $
                runTcSWithEvBinds ev_binds_var $
                solveWanteds (mkSimpleWC psig_evs `andWC` wanteds)
@@ -1053,12 +1053,9 @@ simplifyInfer rhs_tclvl infer_mode sigs name_taus wanteds
        --      the psig_theta; it's just the extra bit
        -- NB2: We do not do any defaulting when inferring a type, this can lead
        --      to less polymorphic types, see Note [Default while Inferring]
-       ; wanted_transformed_incl_derivs <- TcM.zonkWC wanted_transformed_incl_derivs
-       ; let definite_error = insolubleWC wanted_transformed_incl_derivs
+       ; wanted_transformed <- TcM.zonkWC wanted_transformed
+       ; let definite_error = insolubleWC wanted_transformed
                               -- See Note [Quantification with errors]
-                              -- NB: must include derived errors in this test,
-                              --     hence "incl_derivs"
-             wanted_transformed = dropDerivedWC wanted_transformed_incl_derivs
              (quant_ct_candidates, residual_wc, did_fds_combine)
                | definite_error = (emptyBag, wanted_transformed, mempty)
                | otherwise      = approximateWC False wanted_transformed
@@ -1168,9 +1165,9 @@ findInferredDiff annotated_theta inferred_theta
        ; let given_loc = mkGivenLoc topTcLevel UnkSkol lcl_env
              given_cts = mkGivens given_loc given_ids
 
-       ; residual <- runTcSDeriveds $
-                     do { _ <- solveSimpleGivens given_cts
-                        ; solveSimpleWanteds (listToBag (map mkNonCanonical wanteds)) }
+       ; (residual, _) <- runTcS $
+                          do { _ <- solveSimpleGivens given_cts
+                             ; solveSimpleWanteds (listToBag (map mkNonCanonical wanteds)) }
          -- NB: There are no meta tyvars fromn this level annotated_theta
          -- because we have either promoted them or unified them
          -- See `Note [Quantification and partial signatures]` Wrinkle 2
@@ -1250,12 +1247,12 @@ Note [Deciding quantification]
 If the monomorphism restriction does not apply, then we quantify as follows:
 
 * Step 1: decideMonoTyVars.
-  Take the global tyvars, and "grow" them using the equality
-  constraints
+  Take the global tyvars, and "grow" them using functional dependencies
      E.g.  if x:alpha is in the environment, and alpha ~ [beta] (which can
           happen because alpha is untouchable here) then do not quantify over
           beta, because alpha fixes beta, and beta is effectively free in
-          the environment too
+          the environment too; this logic extends to general fundeps, not
+          just equalities
 
   We also account for the monomorphism restriction; if it applies,
   add the free vars of all the constraints.
@@ -1291,6 +1288,7 @@ If the monomorphism restriction does not apply, then we quantify as follows:
   - Take the free vars of the partial-type-signature types and constraints,
     and the tau-type (zonked_tau_tvs), and then "grow"
     them using all the constraints.  These are grown_tcvs.
+    See Note [growThetaTyVars vs closeWrtFunDeps].
 
   - Use quantifyTyVars to quantify over the free variables of all the types
     involved, but only those in the grown_tcvs. "RAE": explain why we
@@ -1909,12 +1907,6 @@ GHC.Tc.Gen.Bind.tcPolyBinds, which gives all the binders in the group the type
 the recovery from failM emits no code at all, so there is no function
 to run!   But -fdefer-type-errors aspires to produce a runnable program.
 
-NB that we must include *derived* errors in the check for insolubles.
-Example:
-    (a::*) ~ Int#
-We get an insoluble derived error *~#, and we don't want to discard
-it before doing the isInsolubleWC test!  (#8262)
-
 Note [Default while Inferring]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Our current plan is that defaulting only happens at simplifyTop and
@@ -1996,26 +1988,15 @@ This only half-works, but then let-generalisation only half-works.
 simplifyWantedsTcM :: [CtEvidence] -> TcM WantedConstraints
 -- Solve the specified Wanted constraints
 -- Discard the evidence binds
--- Discards all Derived stuff in result
 -- Postcondition: fully zonked
 simplifyWantedsTcM wanted
   = do { traceTc "simplifyWantedsTcM {" (ppr wanted)
-       ; (result, _) <- runTcS (solveWantedsAndDrop (mkSimpleWC wanted))
+       ; (result, _) <- runTcS (solveWanteds (mkSimpleWC wanted))
        ; result <- TcM.zonkWC result
        ; traceTc "simplifyWantedsTcM }" (ppr result)
        ; return result }
 
-solveWantedsAndDrop :: WantedConstraints -> TcS WantedConstraints
--- Since solveWanteds returns the residual WantedConstraints,
--- it should always be called within a runTcS or something similar,
--- Result is not zonked
-solveWantedsAndDrop wanted
-  = do { wc <- solveWanteds wanted
-       ; return (dropDerivedWC wc) }
-
 solveWanteds :: WantedConstraints -> TcS WantedConstraints
--- so that the inert set doesn't mindlessly propagate.
--- NB: wc_simples may be wanted /or/ derived now
 solveWanteds wc@(WC { wc_holes = holes })
   = do { cur_lvl <- TcS.getTcLevel
        ; traceTcS "solveWanteds {" $
@@ -2040,7 +2021,7 @@ simplify_loop :: Int -> IntWithInf -> Bool
               -> WantedConstraints -> TcS WantedConstraints
 -- Do a round of solving, and call maybe_simplify_again to iterate
 -- The 'definitely_redo_implications' flags is False if the only reason we
--- are iterating is that we have added some new Derived superclasses (from Wanteds)
+-- are iterating is that we have added some new Wanted superclasses
 -- hoping for fundeps to help us; see Note [Superclass iteration]
 --
 -- Does not affect wc_holes at all; reason: wc_holes never affects anything
@@ -2117,15 +2098,15 @@ Consider this implication constraint
 where
   class D a b | a -> b
   class D a b => C a b
-We will expand d's superclasses, giving [D] D Int beta, in the hope of geting
+We will expand d's superclasses, giving [W] D Int beta, in the hope of geting
 fundeps to unify beta.  Doing so is usually fruitless (no useful fundeps),
 and if so it seems a pity to waste time iterating the implications (forall b. blah)
 (If we add new Given superclasses it's a different matter: it's really worth looking
 at the implications.)
 
 Hence the definitely_redo_implications flag to simplify_loop.  It's usually
-True, but False in the case where the only reason to iterate is new Derived
-superclasses.  In that case we check whether the new Deriveds actually led to
+True, but False in the case where the only reason to iterate is new Wanted
+superclasses.  In that case we check whether the new Wanteds actually led to
 any new unifications, and iterate the implications only if so.
 -}
 
@@ -2179,9 +2160,6 @@ solveImplication imp@(Implic { ic_tclvl  = tclvl
                   ; solveSimpleGivens givens
 
                   ; residual_wanted <- solveWanteds wanteds
-                        -- solveWanteds, *not* solveWantedsAndDrop, because
-                        -- we want to retain derived equalities so we can float
-                        -- them out in floatEqualities.
 
                   ; (has_eqs, given_insols) <- getHasGivenEqs tclvl
                         -- Call getHasGivenEqs /after/ solveWanteds, because
@@ -2223,9 +2201,8 @@ solveImplication imp@(Implic { ic_tclvl  = tclvl
 
 ----------------------
 setImplicationStatus :: Implication -> TcS (Maybe Implication)
--- Finalise the implication returned from solveImplication:
---    * Set the ic_status field
---    * Trim the ic_wanted field to remove Derived constraints
+-- Finalise the implication returned from solveImplication,
+-- setting the ic_status field
 -- Precondition: the ic_status field is not already IC_Solved
 -- Return Nothing if we can discard the implication altogether
 setImplicationStatus implic@(Implic { ic_status     = status
@@ -2285,9 +2262,8 @@ setImplicationStatus implic@(Implic { ic_status     = status
  where
    WC { wc_simple = simples, wc_impl = implics, wc_holes = holes } = wc
 
-   pruned_simples = dropDerivedSimples simples
    pruned_implics = filterBag keep_me implics
-   pruned_wc = WC { wc_simple = pruned_simples
+   pruned_wc = WC { wc_simple = simples
                   , wc_impl   = pruned_implics
                   , wc_holes  = holes }   -- do not prune holes; these should be reported
 
@@ -2622,7 +2598,7 @@ approximateWC :: Bool -> WantedConstraints -> (Cts, WantedConstraints, DidFDsCom
 -- Second return value is the depleted wc
 -- Third return value is YesFDsCombined <=> multiple constraints for the same fundep floated
 -- See Note [Simplifying the approximated WC]
--- Postcondition: Wanted or Derived Cts
+-- Postcondition: Wanted Cts
 -- See Note [ApproximateWC]
 -- See Note [floatKindEqualities vs approximateWC]
 approximateWC float_past_equalities wc
@@ -2797,7 +2773,7 @@ are going to affect these type variables, so it's time to do it by
 hand.  However we aren't ready to default them fully to () or
 whatever, because the type-class defaulting rules have yet to run.
 
-An alternate implementation would be to emit a derived constraint setting
+An alternate implementation would be to emit a Wanted constraint setting
 the RuntimeRep variable to LiftedRep, but this seems unnecessarily indirect.
 
 Note [Promote _and_ default when inferring]
@@ -2894,7 +2870,7 @@ applyDefaultingRules wanteds
 findDefaultableGroups
     :: ( [Type]
        , (Bool,Bool) )     -- (Overloaded strings, extended default rules)
-    -> WantedConstraints   -- Unsolved (wanted or derived)
+    -> WantedConstraints   -- Unsolved
     -> [(TyVar, [Ct])]
 findDefaultableGroups (default_tys, (ovl_strings, extended_defaults)) wanteds
   | null default_tys

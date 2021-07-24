@@ -583,7 +583,6 @@ mkErrorItem ct
            CtWanted { ctev_rewriters = rewriters, ctev_dest = dest }
              -> do { supp <- anyUnfilledCoercionHoles rewriters
                    ; return (supp, Just dest) }
-           CtDerived {} -> return (False, Nothing)
 
        ; let m_reason = case ct of CIrredCan { cc_reason = reason } -> Just reason
                                    _                                -> Nothing
@@ -610,27 +609,7 @@ errorItemEqRel = predTypeEqRel . ei_pred
 reportWanteds :: ReportErrCtxt -> TcLevel -> WantedConstraints -> TcM ()
 reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
                               , wc_holes = holes })
-  = do {
-{- "RAE"
-         -- rewrite all the errors with respect to the givens
-       ; let givens  = errCtxtGivens ctxt
-             raw_items = map mkErrorItem (bagToList simples)
-             tc_level
-               | implic : _ <- cec_encl ctxt = ic_tclvl implic
-               | otherwise                   = topTcLevel
-       ; fam_inst_envs <- tcGetFamInstEnvs
-       ; (rewritten_items, rewritten_holes)
-           <- setTcLevel tc_level $
-              withGivens givens $ do { (,) <$> mapM (simplifyErrorItem fam_inst_envs) raw_items
-                                           <*> mapM simplifyHole (bagToList holes) }
-
-       ; let tidy_items = map (tidyErrorItem env) rewritten_items
-             tidy_holes = map (tidyHole env)      rewritten_holes
-       ; traceTc "reportWanteds 2" (vcat [ text "tidy_items =" <+> ppr tidy_items
-                                         , text "tidy_holes =" <+> ppr tidy_holes ])
--}
-
-       ; tidy_items <- mapMaybeM mkErrorItem tidy_cts
+  = do { tidy_items <- mapMaybeM mkErrorItem tidy_cts
        ; traceTc "reportWanteds 1" (vcat [ text "Simples =" <+> ppr simples
                                          , text "Suppress =" <+> ppr (cec_suppress ctxt)
                                          , text "tidy_cts   =" <+> ppr tidy_cts
@@ -665,11 +644,6 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
        ; (ctxt3, leftovers) <- tryReporters ctxt2 report2 items1
        ; massertPpr (null leftovers) (ppr leftovers)
 
-            -- All the Derived ones have been filtered out of simples
-            -- by the constraint solver. This is ok; we don't want
-            -- to report unsolved Derived goals as errors
-            -- See Note [Do not report derived but soluble errors]
-
        ; mapBagM_ (reportImplic ctxt2) implics
             -- NB ctxt2: don't suppress inner insolubles if there's only a
             -- wanted insoluble here; but do suppress inner insolubles
@@ -690,7 +664,7 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
       -- See Note [Suppressing confusing errors]
     suppress :: ErrorItem -> Bool
     suppress item
-      | Wanted _ <- ei_flavour item
+      | Wanted <- ei_flavour item
       = is_ww_fundep_item item
       | otherwise
       = False
@@ -1146,7 +1120,7 @@ addDeferredBinding ctxt err (EI { ei_evdest = Just dest, ei_pred = item_ty
                      let co_var = coHoleCoVar hole
                    ; addTcEvBind ev_binds_var $ mkWantedEvBind co_var err_tm
                    ; fillCoercionHole hole (mkTcCoVarCo co_var) }}
-addDeferredBinding _ _ _ = return ()    -- Do not set any evidence for Given/Derived
+addDeferredBinding _ _ _ = return ()    -- Do not set any evidence for Given
 
 mkErrorTerm :: ReportErrCtxt -> CtLoc -> Type  -- of the error term
             -> Report -> TcM EvTerm
@@ -1219,7 +1193,7 @@ pprWithArising :: [Ct] -> (CtLoc, SDoc)
 --    (Eq a) arising from a use of x at y
 --    (Show a) arising from a use of p at q
 -- Also return a location for the error message
--- Works for Wanted/Derived only
+-- Works for Wanted only
 pprWithArising []
   = panic "pprWithArising"
 pprWithArising (ct:cts)
@@ -1295,64 +1269,6 @@ Instead, we invent a new EvVar, bind it to an error and then make a coercion
 from that EvVar, filling the hole with that coercion. Because coercions'
 types are unlifted, the error is guaranteed to be hit before we get to the
 coercion.
-
-Note [No ancestors in addDeferredBinding]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Generally, we wish to report errors about the *ancestors* of constraints, not
-about the constraints themselves. See Note [Wanteds rewrite Wanteds] in
-GHC.Tc.Types.Constraint. But, when we add a deferred binding, we must use the
-constraint itself, because that is what describes the evidence left in the
-AST during constraint-generation.
-
-Note [Do not report derived but soluble errors]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The wc_simples include Derived constraints that have not been solved,
-but are not insoluble (in that case they'd be reported by 'report1').
-We do not want to report these as errors:
-
-* Superclass constraints. If we have an unsolved [W] Ord a, we'll also have
-  an unsolved [D] Eq a, and we do not want to report that; it's just noise.
-
-* Functional dependencies.  For givens, consider
-      class C a b | a -> b
-      data T a where
-         MkT :: C a d => [d] -> T a
-      f :: C a b => T a -> F Int
-      f (MkT xs) = length xs
-  Then we get a [D] b~d.  But there *is* a legitimate call to
-  f, namely   f (MkT [True]) :: T Bool, in which b=d.  So we should
-  not reject the program.
-
-  For wanteds, something similar
-      data T a where
-        MkT :: C Int b => a -> b -> T a
-      g :: C Int c => c -> ()
-      f :: T a -> ()
-      f (MkT x y) = g x
-  Here we get [G] C Int b, [W] C Int a, hence [D] a~b.
-  But again f (MkT True True) is a legitimate call.
-
-(We leave the Deriveds in wc_simple until reportErrors, so that we don't lose
-derived superclasses between iterations of the solver.)
-
-For functional dependencies, here is a real example,
-stripped off from libraries/utf8-string/Codec/Binary/UTF8/Generic.hs
-
-  class C a b | a -> b
-  g :: C a b => a -> b -> ()
-  f :: C a b => a -> b -> ()
-  f xa xb =
-      let loop = g xa
-      in loop xb
-
-We will first try to infer a type for loop, and we will succeed:
-    C a b' => b' -> ()
-Subsequently, we will type check (loop xb) and all is good. But,
-recall that we have to solve a final implication constraint:
-    C a b => (C a b' => .... cts from body of loop .... ))
-And now we have a problem as we will generate an equality b ~ b' and fail to
-solve it.
-
 
 ************************************************************************
 *                                                                      *
@@ -1584,7 +1500,6 @@ validHoleFits ctxt@(CEC { cec_encl = implics
     mk_wanted (EI { ei_pred = pred, ei_evdest = Just dest, ei_loc = loc })
          = CtWanted { ctev_pred      = pred
                     , ctev_dest      = dest
-                    , ctev_nosh      = WDeriv
                     , ctev_loc       = loc
                     , ctev_rewriters = emptyRewriterSet }
     mk_wanted item = pprPanic "validHoleFits no evdest" (ppr item)
@@ -1698,7 +1613,7 @@ mkEqErr ctxt items
   = panic "mkEqErr"  -- guaranteed to have at least one item
 
 mkEqErr1 :: ReportErrCtxt -> ErrorItem -> TcM Report
-mkEqErr1 ctxt item   -- Wanted or derived;
+mkEqErr1 ctxt item   -- Wanted only
                      -- givens handled in mkGivenErrorReporter
   = do { (ctxt, binds_msg, item) <- relevantBindings True ctxt item
        ; rdr_env <- getGlobalRdrEnv

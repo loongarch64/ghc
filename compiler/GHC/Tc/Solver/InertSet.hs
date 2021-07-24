@@ -8,7 +8,7 @@ module GHC.Tc.Solver.InertSet (
     -- * The work list
     WorkList(..), isEmptyWorkList, emptyWorkList,
     extendWorkListNonEq, extendWorkListCt,
-    extendWorkListCts, extendWorkListEq, extendWorkListDeriveds,
+    extendWorkListCts, extendWorkListEq,
     appendWorkList, extendWorkListImplic,
     workListSize,
     selectWorkItem,
@@ -89,13 +89,13 @@ It's very important to process equalities /first/:
 
 * (Avoiding fundep iteration) As #14723 showed, it's possible to
   get non-termination if we
-      - Emit the Derived fundep equalities for a class constraint,
+      - Emit the fundep equalities for a class constraint,
         generating some fresh unification variables.
       - That leads to some unification
       - Which kicks out the class constraint
-      - Which isn't solved (because there are still some more Derived
+      - Which isn't solved (because there are still some more
         equalities in the work-list), but generates yet more fundeps
-  Solution: prioritise derived equalities over class constraints
+  Solution: prioritise equalities over class constraints
 
 * (Class equalities) We need to prioritise equalities even if they
   are hidden inside a class constraint;
@@ -105,12 +105,6 @@ It's very important to process equalities /first/:
   constraints too (see the call to extendWorkListCt in kick_out_rewritable
   E.g. a CIrredCan can be a hetero-kinded (t1 ~ t2), which may become
   homo-kinded when kicked out, and hence we want to prioritise it.
-
-* (Derived equalities) Originally we tried to postpone processing
-  Derived equalities, in the hope that we might never need to deal
-  with them at all; but in fact we must process Derived equalities
-  eagerly, partly for the (Efficiency) reason, and more importantly
-  for (Avoiding fundep iteration).
 
 Note [Prioritise class equalities]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -144,7 +138,7 @@ See GHC.Tc.Solver.Monad.deferTcSForAllEq
 -- See Note [WorkList priorities]
 data WorkList
   = WL { wl_eqs     :: [Ct]  -- CEqCan, CDictCan, CIrredCan
-                             -- Given, Wanted, and Derived
+                             -- Given and Wanted
                        -- Contains both equality constraints and their
                        -- class-level variants (a~b) and (a~~b);
                        -- See Note [Prioritise equalities]
@@ -175,10 +169,6 @@ extendWorkListEq ct wl = wl { wl_eqs = ct : wl_eqs wl }
 extendWorkListNonEq :: Ct -> WorkList -> WorkList
 -- Extension by non equality
 extendWorkListNonEq ct wl = wl { wl_rest = ct : wl_rest wl }
-
-extendWorkListDeriveds :: [CtEvidence] -> WorkList -> WorkList
-extendWorkListDeriveds evs wl
-  = extendWorkListCts (map mkNonCanonical evs) wl
 
 extendWorkListImplic :: Implication -> WorkList -> WorkList
 extendWorkListImplic implic wl = wl { wl_implics = implic `consBag` wl_implics wl }
@@ -236,7 +226,7 @@ instance Outputable WorkList where
 
 data InertSet
   = IS { inert_cans :: InertCans
-              -- Canonical Given, Wanted, Derived
+              -- Canonical Given, Wanted
               -- Sometimes called "the inert set"
 
        , inert_cycle_breakers :: [(TcTyVar, TcType)]
@@ -936,10 +926,10 @@ Why we cannot drop the (fs >= fw) condition:
     can cause a loop. Example:
 
       Work:  [G] b ~ a
-      Inert: [D] a ~ b
+      Inert: [W] a ~ b
 
-    (where G >= G, G >= D, and D >= D)
-    If we don't kick out the inert, then we get a loop on e.g. [D] a ~ Int.
+    (where G >= G, G >= W, and W >= W)
+    If we don't kick out the inert, then we get a loop on e.g. [W] a ~ Int.
 
   * Note that the above example is different if the inert is a Given G, because
     (T1) won't hold.
@@ -1050,7 +1040,7 @@ Note [Flavours with roles]
 The system described in Note [inert_eqs: the inert equalities]
 discusses an abstract
 set of flavours. In GHC, flavours have two components: the flavour proper,
-taken from {Wanted, Derived, Given} and the equality relation (often called
+taken from {Wanted, Given} and the equality relation (often called
 role), taken from {NomEq, ReprEq}.
 When substituting w.r.t. the inert set,
 as described in Note [inert_eqs: the inert equalities],
@@ -1079,7 +1069,7 @@ data InertCans   -- See Note [Detailed InertCans Invariants] for more
               -- All CEqCans with a TyFamLHS; index is the whole family head type.
               -- LHS is fully rewritten (modulo eqCanRewrite constraints)
               --     wrt inert_eqs
-              -- Can include all flavours, [G], [W], [WD], [D]
+              -- Can include both [G] and [W]
 
        , inert_dicts :: DictMap Ct
               -- Dictionaries only
@@ -1262,7 +1252,7 @@ addInertItem tc_lvl ics@(IC { inert_irreds = irreds }) item@(CIrredCan {})
     ics { inert_irreds = irreds `snocBag` item }
 
 addInertItem _ ics item@(CDictCan { cc_class = cls, cc_tyargs = tys })
-  = ics { inert_dicts = addDictCt (inert_dicts ics) cls tys item }
+  = ics { inert_dicts = addDict (inert_dicts ics) cls tys item }
 
 addInertItem _ _ item
   = pprPanic "upd_inert set: can't happen! Inserting " $
@@ -1307,7 +1297,7 @@ kickOutRewritableLHS new_fr new_lhs
                              , inert_funeqs   = funeqmap
                              , inert_irreds   = irreds
                              , inert_insts    = old_insts })
-  | not (new_fr `eqMayRewriteFR` new_fr)
+  | not (new_fr `eqCanRewriteFR` new_fr)
   = (emptyWorkList, ics)
         -- If new_fr can't rewrite itself, it can't rewrite
         -- anything else, so no need to kick out anything.
@@ -1364,8 +1354,7 @@ kickOutRewritableLHS new_fr new_lhs
 
     fr_tv_can_rewrite_ty :: TyVar -> EqRel -> Type -> Bool
     fr_tv_can_rewrite_ty new_tv role ty
-      = anyRewritableTyVar True role can_rewrite ty
-                  -- True: ignore casts and coercions
+      = anyRewritableTyVar role can_rewrite ty
       where
         can_rewrite :: EqRel -> TyVar -> Bool
         can_rewrite old_role tv = new_role `eqCanRewrite` old_role && tv == new_tv
@@ -1388,7 +1377,7 @@ kickOutRewritableLHS new_fr new_lhs
       TyFamLHS new_tf new_tf_args -> fr_tf_can_rewrite_ty new_tf new_tf_args
 
     fr_may_rewrite :: CtFlavourRole -> Bool
-    fr_may_rewrite fs = new_fr `eqMayRewriteFR` fs
+    fr_may_rewrite fs = new_fr `eqCanRewriteFR` fs
         -- Can the new item rewrite the inert item?
 
     {-# INLINE kick_out_ct #-}   -- perform case on new_lhs here only once
@@ -1414,7 +1403,7 @@ kickOutRewritableLHS new_fr new_lhs
       -- Below here (fr_may_rewrite fs) is True
 
       | TyVarLHS _ <- lhs
-      , fs `eqMayRewriteFR` new_fr
+      , fs `eqCanRewriteFR` new_fr
       = False  -- (K4) Keep it in the inert set if the LHS is a tyvar and
                -- it can rewrite the work item. See Note [K4]
 
@@ -1430,7 +1419,7 @@ kickOutRewritableLHS new_fr new_lhs
       where
         fs = (ctEvFlavour ev, eq_rel)
         kick_out_for_inertness
-          =    (fs `eqMayRewriteFR` fs)           -- (K2a)
+          =    (fs `eqCanRewriteFR` fs)           -- (K2a)
             && fr_can_rewrite_ty eq_rel rhs_ty    -- (K2b)
 
         kick_out_for_completeness  -- (K3) and Note [K3: completeness of solving]
@@ -1480,9 +1469,6 @@ new equality, to maintain the inert-set invariants.
     most precise kinds visible for matching classes etc. No need to
     kick out constraints that mention type variables whose kinds
     contain this LHS!
-
-  - A Derived equality can kick out [D] constraints in inert_eqs,
-    inert_dicts, inert_irreds etc.
 
   - We don't kick out constraints from inert_solved_dicts, and
     inert_solved_funeqs optimistically. But when we lookup we have to

@@ -106,7 +106,7 @@ module GHC.Tc.Utils.TcType (
 
   -- * Finding "exact" (non-dead) type variables
   exactTyCoVarsOfType, exactTyCoVarsOfTypes,
-  anyRewritableTyVar, anyRewritableTyFamApp, anyRewritableCanEqLHS,
+  anyRewritableTyVar, anyRewritableTyFamApp,
 
   ---------------------------------
   -- Foreign import and export
@@ -825,15 +825,14 @@ isTyFamFree :: Type -> Bool
 -- ^ Check that a type does not contain any type family applications.
 isTyFamFree = null . tcTyFamInsts
 
-any_rewritable :: Bool    -- Ignore casts and coercions
-               -> EqRel   -- Ambient role
+any_rewritable :: EqRel   -- Ambient role
                -> (EqRel -> TcTyVar -> Bool)           -- check tyvar
                -> (EqRel -> TyCon -> [TcType] -> Bool) -- check type family
                -> (TyCon -> Bool)                      -- expand type synonym?
                -> TcType -> Bool
 -- Checks every tyvar and tyconapp (not including FunTys) within a type,
 -- ORing the results of the predicates above together
--- Do not look inside casts and coercions if 'ignore_cos' is True
+-- Do not look inside casts and coercions
 -- See Note [anyRewritableTyVar must be role-aware]
 --
 -- This looks like it should use foldTyCo, but that function is
@@ -842,7 +841,7 @@ any_rewritable :: Bool    -- Ignore casts and coercions
 --
 -- See Note [Rewritable] in GHC.Tc.Solver.InertSet for a specification for this function.
 {-# INLINE any_rewritable #-} -- this allows specialization of predicates
-any_rewritable ignore_cos role tv_pred tc_pred should_expand
+any_rewritable role tv_pred tc_pred should_expand
   = go role emptyVarSet
   where
     go_tv rl bvs tv | tv `elemVarSet` bvs = False
@@ -868,8 +867,8 @@ any_rewritable ignore_cos role tv_pred tc_pred should_expand
       where arg_rep = getRuntimeRep arg -- forgetting these causes #17024
             res_rep = getRuntimeRep res
     go rl bvs (ForAllTy tv ty)   = go rl (bvs `extendVarSet` binderVar tv) ty
-    go rl bvs (CastTy ty co)     = go rl bvs ty || go_co rl bvs co
-    go rl bvs (CoercionTy co)    = go_co rl bvs co  -- ToDo: check
+    go rl bvs (CastTy ty _)      = go rl bvs ty
+    go _  _   (CoercionTy _)     = False
 
     go_tc NomEq  bvs _  tys = any (go NomEq bvs) tys
     go_tc ReprEq bvs tc tys = any (go_arg bvs)
@@ -879,19 +878,12 @@ any_rewritable ignore_cos role tv_pred tc_pred should_expand
     go_arg bvs (Representational, ty) = go ReprEq bvs ty
     go_arg _   (Phantom,          _)  = False  -- We never rewrite with phantoms
 
-    go_co rl bvs co
-      | ignore_cos = False
-      | otherwise  = anyVarSet (go_tv rl bvs) (tyCoVarsOfCo co)
-      -- We don't have an equivalent of anyRewritableTyVar for coercions
-      -- (at least not yet) so take the free vars and test them
-
-anyRewritableTyVar :: Bool     -- Ignore casts and coercions
-                   -> EqRel    -- Ambient role
+anyRewritableTyVar :: EqRel    -- Ambient role
                    -> (EqRel -> TcTyVar -> Bool)  -- check tyvar
                    -> TcType -> Bool
 -- See Note [Rewritable] in GHC.Tc.Solver.InertSet for a specification for this function.
-anyRewritableTyVar ignore_cos role pred
-  = any_rewritable ignore_cos role pred
+anyRewritableTyVar role pred
+  = any_rewritable role pred
       (\ _ _ _ -> False) -- no special check for tyconapps
                          -- (this False is ORed with other results, so it
                          --  really means "do nothing special"; the arguments
@@ -908,18 +900,7 @@ anyRewritableTyFamApp :: EqRel   -- Ambient role
   -- always ignores casts & coercions
 -- See Note [Rewritable] in GHC.Tc.Solver.InertSet for a specification for this function.
 anyRewritableTyFamApp role check_tyconapp
-  = any_rewritable True role (\ _ _ -> False) check_tyconapp (not . isFamFreeTyCon)
-
--- This version is used by shouldSplitWD. It *does* look in casts
--- and coercions, and it always expands type synonyms whose RHSs mention
--- type families.
--- See Note [Rewritable] in GHC.Tc.Solver.InertSet for a specification for this function.
-anyRewritableCanEqLHS :: EqRel   -- Ambient role
-                      -> (EqRel -> TcTyVar -> Bool)            -- check tyvar
-                      -> (EqRel -> TyCon -> [TcType] -> Bool)  -- check type family
-                      -> TcType -> Bool
-anyRewritableCanEqLHS role check_tyvar check_tyconapp
-  = any_rewritable False role check_tyvar check_tyconapp (not . isFamFreeTyCon)
+  = any_rewritable role (\ _ _ -> False) check_tyconapp (not . isFamFreeTyCon)
 
 {- Note [anyRewritableTyVar must be role-aware]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
