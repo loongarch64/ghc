@@ -10,6 +10,6 @@ plugin = defaultPlugin { tcPlugin = Just . thePlugin }
 thePlugin :: [CommandLineOption] -> TcPlugin
 thePlugin opts = TcPlugin
   { tcPluginInit  = trace "TcPluginGHCi" (return ())
-  , tcPluginSolve = \_ _ _ _ -> return $ TcPluginOk [] []
+  , tcPluginSolve = \_ _ _ -> return $ TcPluginOk [] []
   , tcPluginStop  = \_ -> return ()
   }

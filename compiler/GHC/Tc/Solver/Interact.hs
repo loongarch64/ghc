@@ -47,6 +47,7 @@ import GHC.Utils.Monad ( concatMapM, foldlM )
 
 import GHC.Core
 import Data.List( deleteFirstsBy )
+import Data.Function ( on )
 import GHC.Types.SrcLoc
 import GHC.Types.Var.Env
 
@@ -465,12 +466,14 @@ solveOneFromTheOther ev_i ev_w
 
   | CtWanted {} <- ev_w
        -- Inert is Given or Wanted
-  = case ev_i of
-      CtWanted {} -> return KeepWork
-      _           -> return KeepInert
-      -- Consider work  item [W] C ty1 ty2
-      --          inert item [W] C ty1 ty2
-      -- Then we keep the work item (arbitrarily).
+  = return $ case ev_i of
+               CtWanted {} -> choose_better_loc
+                 -- both are Wanted; choice of which to keep is
+                 -- arbitrary. So we look at the context to choose
+                 -- which would make a better error message
+
+               _           -> KeepInert
+                 -- work is Wanted; inert is Given: easy choice.
 
   -- From here on the work-item is Given
 
@@ -502,6 +505,27 @@ solveOneFromTheOther ev_i ev_w
      lvl_w = ctLocLevel loc_w
      ev_id_i = ctEvEvId ev_i
      ev_id_w = ctEvEvId ev_w
+
+     choose_better_loc
+       -- if only one is a WantedSuperclassOrigin (arising from expanding
+       -- a Wanted class constraint), keep the other: wanted superclasses
+       -- may be unexpected by users
+       | is_wanted_superclass_loc loc_i
+       , not (is_wanted_superclass_loc loc_w) = KeepWork
+
+       | not (is_wanted_superclass_loc loc_i)
+       , is_wanted_superclass_loc loc_w = KeepInert
+
+        -- otherwise, just choose the lower span
+        -- reason: if we have something like (abs 1) (where the
+        -- Num constraint cannot be satisfied), it's better to
+        -- get an error about abs than about 1.
+        -- This test might become more elaborate if we see an
+        -- opportunity to improve the error messages
+       | ((<) `on` ctLocSpan) loc_i loc_w = KeepInert
+       | otherwise                        = KeepWork
+
+     is_wanted_superclass_loc = isWantedSuperclassOrigin . ctLocOrigin
 
      different_level_strategy  -- Both Given
        | isIPLikePred pred = if lvl_w > lvl_i then KeepWork  else KeepInert

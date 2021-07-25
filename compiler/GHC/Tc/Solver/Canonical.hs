@@ -1695,7 +1695,7 @@ data families like newtypes. See also
 Note [Decomposing newtypes at representational role]. See #10534 and
 test case typecheck/should_fail/T10534.
 
-{4}: See Note [Decomposing AppTy at representational role]  "RAE": redundant?
+{4}: See Note [Decomposing AppTy at representational role]
 
    Because type variables can stand in for newtypes, we conservatively do not
    decompose AppTys over representational equality. Here are two examples that

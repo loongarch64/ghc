@@ -18,7 +18,8 @@ module GHC.Tc.Types.Origin (
   -- CtOrigin
   CtOrigin(..), exprCtOrigin, lexprCtOrigin, matchesCtOrigin, grhssCtOrigin,
   isVisibleOrigin, toInvisibleOrigin,
-  pprCtOrigin, isGivenOrigin, isWantedWantedFunDepOrigin
+  pprCtOrigin, isGivenOrigin, isWantedWantedFunDepOrigin,
+  isWantedSuperclassOrigin
 
   ) where
 
@@ -504,6 +505,12 @@ isWantedWantedFunDepOrigin :: CtOrigin -> Bool
 isWantedWantedFunDepOrigin (FunDepOrigin1 _ orig1 _ _ orig2 _)
   = not (isGivenOrigin orig1) && not (isGivenOrigin orig2)
 isWantedWantedFunDepOrigin _ = False
+
+-- | Did a constraint arise from expanding a Wanted constraint
+-- to look at superclasses?
+isWantedSuperclassOrigin :: CtOrigin -> Bool
+isWantedSuperclassOrigin (WantedSuperclassOrigin {}) = True
+isWantedSuperclassOrigin _                           = False
 
 instance Outputable CtOrigin where
   ppr = pprCtOrigin

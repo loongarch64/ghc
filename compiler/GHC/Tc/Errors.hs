@@ -594,11 +594,6 @@ mkErrorItem ct
                             , ei_m_reason = m_reason
                             , ei_suppress = suppress }}
 
-{- "RAE"
-tidyErrorItem :: TidyEnv -> ErrorItem -> ErrorItem
-tidyErrorItem env item@(EI { ei_pred = pred })
-  = item { ei_pred = tidyType env pred }
--}
 errorItemOrigin :: ErrorItem -> CtOrigin
 errorItemOrigin = ctLocOrigin . ei_loc
 
@@ -3324,7 +3319,7 @@ warnDefaulting wanteds default_ty
        ; env0 <- tcInitTidyEnv
             -- don't want to report all the superclass constraints, which
             -- add unhelpful clutter
-       ; let filtered = filter (not . is_wanted_superclass . ctOrigin) wanteds
+       ; let filtered = filter (not . isWantedSuperclassOrigin . ctOrigin) wanteds
              tidy_env = tidyFreeTyCoVars env0 $
                         tyCoVarsOfCtsList (listToBag filtered)
              tidy_wanteds = map (tidyCt tidy_env) filtered
@@ -3339,9 +3334,6 @@ warnDefaulting wanteds default_ty
        ; let diag = TcRnUnknownMessage $
                mkPlainDiagnostic (WarningWithFlag Opt_WarnTypeDefaults) noHints warn_msg
        ; setCtLocM loc $ diagnosticTc warn_default diag }
-  where
-    is_wanted_superclass (WantedSuperclassOrigin {}) = True
-    is_wanted_superclass _                           = False
 
 {-
 Note [Runtime skolems]
@@ -3349,50 +3341,4 @@ Note [Runtime skolems]
 We want to give a reasonably helpful error message for ambiguity
 arising from *runtime* skolems in the debugger.  These
 are created by in GHC.Runtime.Heap.Inspect.zonkRTTIType.
--}
-
-
-{-
-************************************************************************
-*                                                                      *
-       Simplifying with respect to givens
-*                                                                      *
-************************************************************************
-
-See Note [Wanteds rewrite Wanteds] in GHC.Tc.Types.Constraint for the
-motivation why we need these.
--}
-{- "RAE"
--- | Extract out all the givens from enclosing implications; order of
--- result does not matter.
-errCtxtGivens :: ReportErrCtxt -> [Ct]
-errCtxtGivens (CEC { cec_encl = implics }) = concatMap go implics
-  where
-    go :: Implication -> [Ct]
-    go (Implic { ic_tclvl = tclvl
-               , ic_info  = skol_info
-               , ic_env   = lcl_env
-               , ic_given = given_ids })
-      = mkGivens given_loc given_ids
-      where
-        given_loc = mkGivenLoc tclvl skol_info lcl_env
-
-simplifyErrorItem :: FamInstEnvs -> ErrorItem -> TcS ErrorItem
-simplifyErrorItem fam_inst_envs ei@(EI { ei_pred = pred, ei_loc = loc })
-  = do { pred1 <- flattenType loc pred
-       ; let pred2 = case errorItemEqRel ei of
-               NomEq -> snd $ normaliseType fam_inst_envs Nominal pred1
-               ReprEq
-                 | Just (Representational, ty1, ty2) <- getEqPredTys_maybe pred1
-                 -> mkReprPrimEqPred (norm ty1) (norm ty2)
-                 where
-                   norm ty = maybe ty snd (topNormaliseType_maybe fam_inst_envs ty)
-               _ -> panic "simplifyErrorItem ReprEq" (ppr ei)
-       ; return (ei { ei_pred = pred2 }) }
-
-simplifyHole :: Hole -> TcS Hole
-simplifyHole h@(Hole { hole_ty = ty, hole_loc = loc })
-  = do { ty' <- flattenType loc ty
-       ; return (h { hole_ty = ty' }) }
-
 -}

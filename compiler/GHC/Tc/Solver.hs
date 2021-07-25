@@ -1291,8 +1291,7 @@ If the monomorphism restriction does not apply, then we quantify as follows:
     See Note [growThetaTyVars vs closeWrtFunDeps].
 
   - Use quantifyTyVars to quantify over the free variables of all the types
-    involved, but only those in the grown_tcvs. "RAE": explain why we
-    need grown_tcvs. I don't think we do.
+    involved, but only those in the grown_tcvs.
 
   Result is qtvs.
 
@@ -1537,21 +1536,6 @@ decideMonoTyVars infer_mode name_taus psigs candidates
             2 (hsep [ text "Consider giving"
                     , text (if isSingleton name_taus then "it" else "them")
                     , text "a type signature"])
-
-{- "RAE"
--------------------
-growMonoTyVars :: [PredType]   -- candidates
-               -> TyVarSet     -- original mono vars
-               -> TyVarSet     -- all mono vars
--- given the candidates and a seed set of mono tyvars, grows the
--- set of mono tyvars. The expanded set includes all tyvars that are
--- determined by the seeds, or transitively by other tyvars determined
--- by the seeds. However, there is a catch: we must use only predicates
--- that we will not, in the end, want to quantify over. Because we
--- don't quantify over equalities, this set initially includes just
--- equalities, but we also include any non-equalities whose free variables
--- are all mono (as these will not be quantified over).
--}
 
 -------------------
 defaultTyVarsAndSimplify :: TcLevel
