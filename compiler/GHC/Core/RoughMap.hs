@@ -30,7 +30,6 @@ import GHC.Prelude
 import GHC.Data.Bag
 import GHC.Core.TyCon
 import GHC.Core.Type
-import GHC.Utils.Misc
 import GHC.Utils.Outputable
 import GHC.Utils.Panic
 import GHC.Types.Name
