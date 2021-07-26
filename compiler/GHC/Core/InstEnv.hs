@@ -50,7 +50,6 @@ import GHC.Types.Id
 import Data.Data        ( Data )
 import Data.Maybe       ( isJust )
 
-import GHC.Utils.Misc
 import GHC.Utils.Outputable
 import GHC.Utils.Panic
 import GHC.Utils.Panic.Plain
