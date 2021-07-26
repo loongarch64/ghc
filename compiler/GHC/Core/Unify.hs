@@ -1,8 +1,8 @@
 -- (c) The University of Glasgow 2006
 
-{-# LANGUAGE ScopedTypeVariables, PatternSynonyms #-}
-
-{-# LANGUAGE DeriveFunctor, DeriveDataTypeable #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 module GHC.Core.Unify (
         tcMatchTy, tcMatchTyKi,
