@@ -2021,8 +2021,12 @@ tryEtaReduce bndrs body
     ok_fun :: Arity -> CoreExpr -> Bool
     ok_fun n (App fun arg)
       | isTypeArg arg = ok_fun n fun
-      | otherwise     = ok_fun (n+1) fun && exprIsCheap arg
-                        -- See Note [Eta-reduce PAPs]
+      | otherwise     = False -- ok_fun (n+1) fun exprIsCheap arg
+            -- Currently experimenting with *not* eta-reducing if
+            -- that leaves a PAP.   Reason: \x. f y x ==> f y
+            -- might mean that f isn't saturated any more, and does
+            -- not inline
+            -- See Note [Eta-reduce PAPs]
     ok_fun n (Cast fun _)  = ok_fun n fun
     ok_fun n (Tick _ expr) = ok_fun n expr
     ok_fun n (Var fun_id)  = ok_fun_id n fun_id
