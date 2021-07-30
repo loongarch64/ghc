@@ -38,7 +38,7 @@ import GHC.Core.Unfold
 import GHC.Core.Unfold.Make
 import GHC.Core.Utils
 import GHC.Core.Opt.Arity ( ArityType, arityTypeArityDiv, exprArity
-                          , pushCoTyArg, pushCoValArg
+                          , pushCoTyArg, pushCoValArg, zapLamBndrs
                           , typeArity, arityTypeArity, etaExpandAT )
 import GHC.Core.SimpleOpt ( exprIsConApp_maybe, joinPointBinding_maybe, joinPointBindings_maybe )
 import GHC.Core.FVs     ( mkRuleInfo )

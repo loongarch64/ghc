@@ -12,9 +12,8 @@
 -- | Arity and eta expansion
 module GHC.Core.Opt.Arity
    ( -- Finding arity
-     manifestArity, joinRhsArity, exprArity, typeArity
-   , typeOneShots, findRhsArity
-   , exprBotStrictness_maybe
+     manifestArity, joinRhsArity, exprArity
+   , findRhsArity, exprBotStrictness_maybe
 
    -- ** Eta expansion
    , exprEtaExpandArity, etaExpand, etaExpandAT
@@ -27,6 +26,15 @@ module GHC.Core.Opt.Arity
    , expandableArityType
    , arityTypeArity, arityTypeArityDiv, idArityType
    , trimArityType, extendArityType
+
+   -- ** typeArity and the state hack
+   , typeArity, typeOneShots, typeOneShot
+   , isOneShotBndr, isProbablyOneShotLambda
+   , isStateHackType
+
+   -- * Lambdas
+   , zapLamBndrs
+
 
    -- ** Join points
    , etaExpandToJoinPoint, etaExpandToJoinPointRule
@@ -64,10 +72,13 @@ import GHC.Types.Var.Set
 import GHC.Types.Basic
 import GHC.Types.Tickish
 
+import GHC.Builtin.Types.Prim
 import GHC.Builtin.Uniques
+
 import GHC.Data.FastString
 import GHC.Data.Pair
 
+import GHC.Utils.GlobalVars( unsafeHasNoStateHack )
 import GHC.Utils.Constants (debugIsOn)
 import GHC.Utils.Outputable
 import GHC.Utils.Panic
@@ -146,6 +157,41 @@ exprArity e = go e
     go _                           = 0
 
 ---------------
+exprBotStrictness_maybe :: CoreExpr -> Maybe (Arity, DmdSig)
+-- A cheap and cheerful function that identifies bottoming functions
+-- and gives them a suitable strictness signatures.  It's used during
+-- float-out
+exprBotStrictness_maybe e
+  = case getBotArity (arityType botStrictnessArityEnv e) of
+        Nothing -> Nothing
+        Just ar -> Just (ar, sig ar)
+  where
+    sig ar = mkClosedDmdSig (replicate ar topDmd) botDiv
+
+
+{- Note [exprArity for applications]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When we come to an application we check that the arg is trivial.
+   eg  f (fac x) does not have arity 2,
+                 even if f has arity 3!
+
+* We require that is trivial rather merely cheap.  Suppose f has arity 2.
+  Then    f (Just y)
+  has arity 0, because if we gave it arity 1 and then inlined f we'd get
+          let v = Just y in \w. <f-body>
+  which has arity 0.  And we try to maintain the invariant that we don't
+  have arity decreases.
+
+*  The `max 0` is important!  (\x y -> f x) has arity 2, even if f is
+   unknown, hence arity 0
+
+
+************************************************************************
+*                                                                      *
+              typeArity and the "state hack"
+*                                                                      *
+********************************************************************* -}
+
 typeArity :: Type -> Arity
 typeArity = length . typeOneShots
 
@@ -181,20 +227,68 @@ typeOneShots ty
       | otherwise
       = []
 
----------------
-exprBotStrictness_maybe :: CoreExpr -> Maybe (Arity, DmdSig)
--- A cheap and cheerful function that identifies bottoming functions
--- and gives them a suitable strictness signatures.  It's used during
--- float-out
-exprBotStrictness_maybe e
-  = case getBotArity (arityType botStrictnessArityEnv e) of
-        Nothing -> Nothing
-        Just ar -> Just (ar, sig ar)
-  where
-    sig ar = mkClosedDmdSig (replicate ar topDmd) botDiv
+typeOneShot :: Type -> OneShotInfo
+typeOneShot ty
+   | isStateHackType ty = OneShotLam
+   | otherwise          = NoOneShotInfo
+
+-- | Like 'idOneShotInfo', but taking the Horrible State Hack in to account
+-- See Note [The state-transformer hack] in "GHC.Core.Opt.Arity"
+idStateHackOneShotInfo :: Id -> OneShotInfo
+idStateHackOneShotInfo id
+    | isStateHackType (idType id) = OneShotLam
+    | otherwise                   = idOneShotInfo id
+
+-- | Returns whether the lambda associated with the 'Id' is certainly applied at most once
+-- This one is the "business end", called externally.
+-- It works on type variables as well as Ids, returning True
+-- Its main purpose is to encapsulate the Horrible State Hack
+-- See Note [The state-transformer hack] in "GHC.Core.Opt.Arity"
+isOneShotBndr :: Var -> Bool
+isOneShotBndr var
+  | isTyVar var                              = True
+  | OneShotLam <- idStateHackOneShotInfo var = True
+  | otherwise                                = False
+
+isStateHackType :: Type -> Bool
+isStateHackType ty
+  | unsafeHasNoStateHack   -- Switch off with -fno-state-hack
+  = False
+  | otherwise
+  = case tyConAppTyCon_maybe ty of
+        Just tycon -> tycon == statePrimTyCon
+        _          -> False
+        -- This is a gross hack.  It claims that
+        -- every function over realWorldStatePrimTy is a one-shot
+        -- function.  This is pretty true in practice, and makes a big
+        -- difference.  For example, consider
+        --      a `thenST` \ r -> ...E...
+        -- The early full laziness pass, if it doesn't know that r is one-shot
+        -- will pull out E (let's say it doesn't mention r) to give
+        --      let lvl = E in a `thenST` \ r -> ...lvl...
+        -- When `thenST` gets inlined, we end up with
+        --      let lvl = E in \s -> case a s of (r, s') -> ...lvl...
+        -- and we don't re-inline E.
+        --
+        -- It would be better to spot that r was one-shot to start with, but
+        -- I don't want to rely on that.
+        --
+        -- Another good example is in fill_in in PrelPack.hs.  We should be able to
+        -- spot that fill_in has arity 2 (and when Keith is done, we will) but we can't yet.
+
+isProbablyOneShotLambda :: Id -> Bool
+isProbablyOneShotLambda id = case idStateHackOneShotInfo id of
+                               OneShotLam    -> True
+                               NoOneShotInfo -> False
+
 
 {- Note [typeArity invariants]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+(typeArity ty) says how many arrows GHC can expose in 'ty', after
+looking through newtypes.  More generally, (typeOneShots ty) returns
+ty's [OneShotInfo], based only on the type itself, using typeOneShot
+on the argument type to access the "state hack".
+
 We have the following invariants around typeArity
 
   (1) In any binding x = e,
@@ -223,9 +317,10 @@ Suppose we have
    g = case <cond> of { True  -> f |> co1
                       ; False -> g |> co2 }
 
-Now, we can't eta-expand g to have arity 2, because etaExpand, which works
-off the /type/ of the expression, doesn't know how to make an eta-expanded
-binding
+where F is a type family.  Now, we can't eta-expand g to have arity 2,
+because etaExpand, which works off the /type/ of the expression
+(albeit looking through newtypes, doesn't know how to make an
+eta-expanded binding
    g = (\a b. case x of ...) |> co
 because can't make up `co` or the types of `a` and `b`.
 
@@ -299,26 +394,34 @@ trying to *make* it hold, but it's tricky and I gave up.
 
 The test simplCore/should_compile/T3722 is an excellent example.
 -------- End of old out of date comments, just for interest -----------
+-}
+
+{- ********************************************************************
+*                                                                      *
+                  Zapping lambda binders
+*                                                                      *
+********************************************************************* -}
+
+zapLamBndrs :: FullArgCount -> [Var] -> [Var]
+-- If (\xyz. t) appears under-applied to only two arguments,
+-- we must zap the occ-info on x,y, because they appear under the \x
+-- See Note [Occurrence analysis for lambda binders] in GHc.Core.Opt.OccurAnal
+--
+-- NB: both `arg_count` and `bndrs` include both type and value args/bndrs
+zapLamBndrs arg_count bndrs
+  | no_need_to_zap = bndrs
+  | otherwise      = zap_em arg_count bndrs
+  where
+    no_need_to_zap = all isOneShotBndr (drop arg_count bndrs)
+
+    zap_em :: FullArgCount -> [Var] -> [Var]
+    zap_em 0 bs = bs
+    zap_em _ [] = []
+    zap_em n (b:bs) | isTyVar b = b              : zap_em (n-1) bs
+                    | otherwise = zapLamIdInfo b : zap_em (n-1) bs
 
 
-Note [exprArity for applications]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When we come to an application we check that the arg is trivial.
-   eg  f (fac x) does not have arity 2,
-                 even if f has arity 3!
-
-* We require that is trivial rather merely cheap.  Suppose f has arity 2.
-  Then    f (Just y)
-  has arity 0, because if we gave it arity 1 and then inlined f we'd get
-          let v = Just y in \w. <f-body>
-  which has arity 0.  And we try to maintain the invariant that we don't
-  have arity decreases.
-
-*  The `max 0` is important!  (\x y -> f x) has arity 2, even if f is
-   unknown, hence arity 0
-
-
-************************************************************************
+{- *********************************************************************
 *                                                                      *
            Computing the "arity" of an expression
 *                                                                      *

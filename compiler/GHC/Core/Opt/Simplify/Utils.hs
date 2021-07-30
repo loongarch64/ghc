@@ -1705,16 +1705,25 @@ Note [Eta reduction with floats]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Consider this:
   f = \x. letrec g = \y. blah in g x
-where 'blah' does not mention 'y'.  Then we'd like to eta-reduce to
+where 'blah' does not mention 'x'.  Then we'd like to eta-reduce to
   f = letrec g = \y.blah in g
 so that we can float the g-binding to give
   g = \y.blah
   f = g
 and now we can inline the f=g away.
 
-To do this, we call rebuildLam with the let-floats from the body of the
-lambda and, if eta-reduction otherwise works we check for the free
-variables of the floats.
+Something like this can arise if we eta-expand
+   foldr = \k z. letrec go = \xs. blah in go
+to
+   foldr = \k z xs. letrec go = \xs.blah in go xs
+which we may very well do.  (See Note [Eta-expand stable unfoldings]
+in Simplify.hs.)  Now inline at a call site (foldr kk zz)
+and we get
+   \xs. letrec go = \xs.blah in go xs
+
+To do eta-reduction in the presence of floats, we call rebuildLam with
+the let-floats from the body of the lambda and, if eta-reduction
+otherwise works we check for the free variables of the floats.
 
 
 ************************************************************************
