@@ -210,6 +210,7 @@ getTestArgs = do
 
   where areDocsPresent = expr $ do
           root <- buildRoot
+          need [ "docs" ] -- Build docs if not already present - see #19072 and #17728
           and <$> traverse doesFileExist (docFiles root)
 
         docFiles root =
