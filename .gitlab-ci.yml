@@ -478,10 +478,10 @@ lint-libs:
 #################################
 
 .build-x86_64-freebsd:
-  stage: full-build
+  stage: tool-lint
   extends: .validate
   tags:
-    - x86_64-freebsd
+    - x86_64-freebsd13
   allow_failure: true
   variables:
     # N.B. we use iconv from ports as I see linker errors when we attempt
@@ -523,7 +523,7 @@ release-x86_64-freebsd:
 .build-x86_64-freebsd-hadrian:
   extends: .validate-hadrian
   tags:
-    - x86_64-freebsd
+    - x86_64-freebsd13
   allow_failure: true
   variables:
     CONFIGURE_ARGS: "--with-gmp-includes=/usr/local/include --with-gmp-libraries=/usr/local/lib --with-iconv-includes=/usr/local/include --with-iconv-libraries=/usr/local/lib"
