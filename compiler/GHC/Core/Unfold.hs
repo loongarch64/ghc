@@ -1336,7 +1336,7 @@ tryUnfolding logger opts !case_depth id lone_variable
 Note [Unfold into lazy contexts], Note [RHS of lets]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 When the call is the argument of a function with a RULE, or the RHS of a let,
-we are a little bit keener to inline.  For example
+we are a little bit keener to inline (in tryUnfolding).  For example
      f y = (y,y,y)
      g y = let x = f y in ...(case x of (a,b,c) -> ...) ...
 We'd inline 'f' if the call was in a case context, and it kind-of-is,
@@ -1347,7 +1347,8 @@ could be expensive whereas
 is patently cheap and may allow more eta expansion.
 
 So we treat the RHS of a /non-recursive/ let as not-totally-boring.
-A recursive let isn't going be inlined so there is much less point.
+A /recursive/ let isn't going be inlined so there is much less point.
+Hence the RecFlag in RhsCtxt
 
 Note [Unsaturated applications]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

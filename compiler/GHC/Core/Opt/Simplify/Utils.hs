@@ -694,12 +694,15 @@ strictArgContext (ArgInfo { ai_encl = encl_rules, ai_discs = discs })
   | encl_rules                = RuleArgCtxt
   | disc:_ <- discs, disc > 0 = DiscArgCtxt  -- Be keener here
   | otherwise                 = RhsCtxt NonRecursive
-      -- Why RhsCtxt?  if we see f (g x) (h x), and f is strict, we
+      -- Why RhsCtxt?  if we see f (g x), and f is strict, we
       -- want to be a bit more eager to inline g, because it may
       -- expose an eval (on x perhaps) that can be eliminated or
       -- shared. I saw this in nofib 'boyer2', RewriteFuns.onewayunify1
       -- It's worth an 18% improvement in allocation for this
       -- particular benchmark; 5% on 'mate' and 1.3% on 'multiplier'
+      --
+      -- Why NonRecursive?  Becuase it's a bit like
+      --   let a = g x in f a
 
 interestingCallContext :: SimplEnv -> SimplCont -> CallCtxt
 -- See Note [Interesting call context]
@@ -1552,9 +1555,12 @@ won't inline because 'e' is too big.
 rebuildLam :: SimplEnv
            -> [OutBndr] -> SimplFloats -> OutExpr
            -> SimplCont -> SimplM (SimplFloats, OutExpr)
--- (rebuildLam env bndrs floats body cont)
--- returns an expression that means the same as
---      \bndrs. let floats in body
+-- (rebuildLam env bndrs floats_in body cont)
+-- returns (floats_out, expr), where
+--      let floats_out in expr
+-- means the same as
+--      \bndrs. let floats_in in body
+--
 -- But it tries
 --      a) eta reduction, if that gives a trivial expression
 --      b) eta expansion [only if there are some value lambdas]
@@ -1578,7 +1584,8 @@ rebuildLam env bndrs floats body cont
     mkLam' :: DynFlags -> [OutBndr] -> OutExpr -> SimplM (SimplFloats, OutExpr)
     mkLam' dflags bndrs body@(Lam {})
       | isEmptyFloats floats   -- \xs. let floats in \ys. blah
-                               -- Do not combine these lambdas
+                               -- We should not combine these lambdas;
+                               -- hence the isEmptyFloats check here
       = mkLam' dflags (bndrs ++ bndrs1) body1
       where
         (bndrs1, body1) = collectBinders body
@@ -1761,15 +1768,12 @@ tryEtaExpandRhs env is_rec bndr rhs
   = return (arity_type, rhs)
 
   where
-    mode      = getMode env
-    in_scope  = getInScope env
-    dflags    = sm_dflags mode
-    old_arity = exprArity rhs
-
+    mode       = getMode env
+    in_scope   = getInScope env
+    dflags     = sm_dflags mode
+    old_arity  = exprArity rhs
     arity_type = findRhsArity dflags is_rec bndr rhs old_arity
-                 `extendArityType` idCallArity bndr
-
-    new_arity = arityTypeArity arity_type
+    new_arity  = arityTypeArity arity_type
 
 wantEtaExpansion :: CoreExpr -> Bool
 -- Mostly True; but False of PAPs which will immediately eta-reduce again
