@@ -891,9 +891,8 @@ updModeForStableUnfoldings :: Activation -> SimplMode -> SimplMode
 -- See Note [Simplifying inside stable unfoldings]
 updModeForStableUnfoldings unf_act current_mode
   = current_mode { sm_phase      = phaseFromActivation unf_act
-                 , sm_inline     = True
-                 , sm_eta_expand = False }
-       -- sm_eta_expand: see Note [No eta expansion in stable unfoldings]
+                 , sm_inline     = True }
+       -- See Historical Note [No eta expansion in stable unfoldings]
        -- sm_rules: just inherit; sm_rules might be "off"
        -- because of -fno-enable-rewrite-rules
   where
@@ -911,15 +910,23 @@ updModeForRules current_mode
 {- Note [Simplifying rules]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 When simplifying a rule LHS, refrain from /any/ inlining or applying
-of other RULES.
+of other RULES. Doing anything to the LHS is plain confusing, because
+it means that what the rule matches is not what the user
+wrote. c.f. #10595, and #10528.
 
-Doing anything to the LHS is plain confusing, because it means that what the
-rule matches is not what the user wrote. c.f. #10595, and #10528.
-Moreover, inlining (or applying rules) on rule LHSs risks introducing
-Ticks into the LHS, which makes matching trickier. #10665, #10745.
+* sm_inline, sm_rules: inlining (or applying rules) on rule LHSs risks
+  introducing Ticks into the LHS, which makes matching
+  trickier. #10665, #10745.
 
-Doing this to either side confounds tools like HERMIT, which seek to reason
-about and apply the RULES as originally written. See #10829.
+  Doing this to either side confounds tools like HERMIT, which seek to reason
+  about and apply the RULES as originally written. See #10829.
+
+  See also Note [Do not expose strictness if sm_inline=False]
+
+* sm_eta_expand: the template (LHS) of a rule must only mention coercion
+  /variables/ not arbitrary coercions.  See Note [Casts in the template] in
+  GHC.Core.Rules.  Eta expansion can create new coercions; so we switch
+  it off.
 
 There is, however, one case where we are pretty much /forced/ to transform the
 LHS of a rule: postInlineUnconditionally. For instance, in the case of
@@ -936,24 +943,25 @@ postInlineUnconditionally substituted in a trivial expression that contains
 ticks. See Note [Tick annotations in RULE matching] in GHC.Core.Rules for
 details.
 
-Note [No eta expansion in stable unfoldings]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-If we have a stable unfolding
+Historical Note [No eta expansion in stable unfoldings]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+This Note is no longer relevant because the specialiser has improved.
+See Note [Account for casts in binding] in GHC.Core.Opt.Specialise.
+So we do not override sm_eta_expand in updModeForStableUnfoldings.
 
-  f :: Ord a => a -> IO ()
-  -- Unfolding template
-  --    = /\a \(d:Ord a) (x:a). bla
+    Old note: If we have a stable unfolding
+      f :: Ord a => a -> IO ()
+      -- Unfolding template
+      --    = /\a \(d:Ord a) (x:a). bla
+    we do not want to eta-expand to
+      f :: Ord a => a -> IO ()
+      -- Unfolding template
+      --    = (/\a \(d:Ord a) (x:a) (eta:State#). bla eta) |> co
+    because not specialisation of the overloading doesn't work properly
+    (see Note [Specialisation shape] in GHC.Core.Opt.Specialise), #9509.
+    So we disable eta-expansion in stable unfoldings.
 
-we do not want to eta-expand to
-
-  f :: Ord a => a -> IO ()
-  -- Unfolding template
-  --    = (/\a \(d:Ord a) (x:a) (eta:State#). bla eta) |> co
-
-because not specialisation of the overloading doesn't work properly
-(see Note [Specialisation shape] in GHC.Core.Opt.Specialise), #9509.
-
-So we disable eta-expansion in stable unfoldings.
+    End of Historical Note
 
 Note [Inlining in gentle mode]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

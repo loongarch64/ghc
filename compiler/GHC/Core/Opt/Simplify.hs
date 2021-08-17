@@ -4070,7 +4070,9 @@ simplStableUnfolding env top_lvl mb_cont id rhs_ty id_arity unf
                                         -- See Note [Rules and unfolding for join points]
                                         simplJoinRhs unf_env id expr cont
                            Nothing   -> -- Binder is not a join point
-                                        do { expr' <- simplExprC unf_env expr (mkBoringStop rhs_ty)
+                                        do { expr' <- simplExprC unf_env expr (mkRhsStop rhs_ty NonRecursive)
+                                             -- mkRhsStop: switch off eta-expansion at the top level
+                                             -- The is_rec flag doesn't matter so NonRecursive is fine
                                            ; return (eta_expand expr') }
               ; case guide of
                   UnfWhen { ug_arity = arity
@@ -4117,6 +4119,7 @@ simplStableUnfolding env top_lvl mb_cont id rhs_ty id_arity unf
          -- See Note [Simplifying inside stable unfoldings] in GHC.Core.Opt.Simplify.Utils
 
     -- See Note [Eta-expand stable unfoldings]
+    -- Use the arity from the main Id (in id_arity), rather than computing it from rhs
     eta_expand expr | sm_eta_expand (getMode env)
                     , exprArity expr < arityTypeArity id_arity
                     , wantEtaExpansion expr
