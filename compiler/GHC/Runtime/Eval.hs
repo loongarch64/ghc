@@ -905,7 +905,7 @@ parseName str = withSession $ \hsc_env -> liftIO $
 
 getDocs :: GhcMonad m
         => Name
-        -> m (Either GetDocsFailure (Maybe (HsDoc Name), IntMap (HsDoc Name)))
+        -> m (Either GetDocsFailure (Maybe (HsDoc GhcRn), IntMap (HsDoc GhcRn)))
            -- TODO: What about docs for constructors etc.?
 getDocs name =
   withSession $ \hsc_env -> do

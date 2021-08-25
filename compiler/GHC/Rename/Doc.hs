@@ -6,13 +6,12 @@ import GHC.Tc.Types
 import GHC.Hs
 import GHC.Types.Name.Reader
 import GHC.Types.Name
+import GHC.Types.SrcLoc
 import GHC.Tc.Utils.Monad (getGblEnv)
 import GHC.Types.Avail
 import GHC.Rename.Env
-import GHC.Utils.Outputable (ppr)
-import GHC.Utils.Panic (pprPanic)
 
-rnLHsDoc :: LHsDoc RdrName -> RnM (LHsDoc Name)
+rnLHsDoc :: LHsDoc GhcPs -> RnM (LHsDoc GhcRn)
 rnLHsDoc = traverse rnHsDoc
 
 rnLDocDecl :: LDocDecl GhcPs -> RnM (LDocDecl GhcRn)
@@ -20,34 +19,28 @@ rnLDocDecl = traverse rnDocDecl
 
 rnDocDecl :: DocDecl GhcPs -> RnM (DocDecl GhcRn)
 rnDocDecl (DocCommentNext doc) = do
-  doc' <- rnHsDoc doc
+  doc' <- rnLHsDoc doc
   pure $ (DocCommentNext doc')
 rnDocDecl (DocCommentPrev doc) = do
-  doc' <- rnHsDoc doc
+  doc' <- rnLHsDoc doc
   pure $ (DocCommentPrev doc')
 rnDocDecl (DocCommentNamed n doc) = do
-  doc' <- rnHsDoc doc
+  doc' <- rnLHsDoc doc
   pure $ (DocCommentNamed n doc')
 rnDocDecl (DocGroup i doc) = do
-  doc' <- rnHsDoc doc
+  doc' <- rnLHsDoc doc
   pure $ (DocGroup i doc')
 
-rnHsDoc :: HsDoc RdrName -> RnM (HsDoc Name)
+rnHsDoc :: HsDoc GhcPs -> RnM (HsDoc GhcRn)
 rnHsDoc (HsDoc s ids) = do
   gre <- tcg_rdr_env <$> getGblEnv
-  pure (HsDoc s (rnHsDocIdentifier gre <$> ids))
+  pure (HsDoc s (rnHsDocIdentifiers gre ids))
 
-rnHsDocIdentifier :: GlobalRdrEnv
-                  -> HsDocIdentifier RdrName
-                  -> HsDocIdentifier Name
-rnHsDocIdentifier gre (HsDocIdentifier span [rdr_name]) =
-  HsDocIdentifier span names
-  where
-    -- Try to look up all the names in the GlobalRdrEnv that match
-    -- the names.
-    names = concatMap (\c -> map (greNamePrintableName . gre_name) (lookupGRE_RdrName c gre)) choices
-    -- Generate the choices for the possible kind of thing this
-    -- is.
-    choices = dataTcOccs rdr_name
-rnHsDocIdentifier _ hsDocId =
-  pprPanic "rnHsDocIdentifier" (ppr hsDocId)
+rnHsDocIdentifiers :: GlobalRdrEnv
+                  -> [Located RdrName]
+                  -> [Located Name]
+rnHsDocIdentifiers gre ns = concat
+  [ map (L l . greNamePrintableName . gre_name) (lookupGRE_RdrName c gre)
+  | L l rdr_name <- ns
+  , c <- dataTcOccs rdr_name
+  ]

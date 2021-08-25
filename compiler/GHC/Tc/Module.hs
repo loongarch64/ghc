@@ -302,10 +302,9 @@ tcRnModuleTcRnM hsc_env mod_sum
           -- (via mod_deprec) record that in tcg_warns. If we do thereby add
           -- a WarnAll, it will override any subsequent deprecations added to tcg_warns
         ; tcg_env1 <- case mod_deprec of
-                             Just (L _ txt) ->
-                               do { txt' <- traverse rnHsDoc txt
-                                  ; pure tcg_env {tcg_warns = WarnAll txt'}
-                                  }
+                             Just (L _ txt) -> do { txt' <- rnWarningTxt txt
+                                                  ; pure $ tcg_env {tcg_warns = WarnAll txt'}
+                                                  }
                              Nothing            -> pure tcg_env
         ; setGblEnv tcg_env1
           $ do { -- Rename and type check the declarations
@@ -3151,7 +3150,7 @@ runRenamerPlugin gbl_env hs_group = do
 -- exception/signal an error.
 type RenamedStuff =
         (Maybe (HsGroup GhcRn, [LImportDecl GhcRn], Maybe [(LIE GhcRn, Avails)],
-                Maybe (LHsDoc Name)))
+                Maybe (LHsDoc GhcRn)))
 
 -- | Extract the renamed information from TcGblEnv.
 getRenamedStuff :: TcGblEnv -> RenamedStuff

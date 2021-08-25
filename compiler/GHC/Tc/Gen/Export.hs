@@ -401,10 +401,10 @@ exports_from_avail (Just (L _ rdr_items)) rdr_env imports this_mod
     -------------
     lookup_doc_ie :: IE GhcPs -> RnM (Maybe (IE GhcRn))
     lookup_doc_ie (IEGroup _ lev doc) = do
-      doc' <- rnHsDoc doc
+      doc' <- rnLHsDoc doc
       pure $ Just (IEGroup noExtField lev doc')
     lookup_doc_ie (IEDoc _ doc)       = do
-      doc' <- rnHsDoc doc
+      doc' <- rnLHsDoc doc
       pure $ Just (IEDoc noExtField doc')
     lookup_doc_ie (IEDocNamed _ str)  = pure $ Just (IEDocNamed noExtField str)
     lookup_doc_ie _ = pure Nothing

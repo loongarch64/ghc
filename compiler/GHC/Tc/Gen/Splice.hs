@@ -1330,7 +1330,7 @@ instance TH.Quasi TcM where
   qGetDoc TH.ModuleDoc = do
     df <- getDynFlags
     docs <- getGblEnv >>= extractDocs df
-    return (fmap (unpackHDS . hsDocString) $ docs_mod_hdr =<< docs)
+    return (fmap (unpackHDS . concatHDS . hsDocStrings) $ docs_mod_hdr =<< docs)
 
 -- | Looks up documentation for a declaration in first the current module,
 -- otherwise tries to find it in another module via 'hscGetModuleInterface'.
@@ -1341,13 +1341,13 @@ lookupDeclDoc nm = do
   fam_insts <- tcg_fam_insts <$> getGblEnv
   traceTc "lookupDeclDoc" (ppr nm <+> ppr docs_decls <+> ppr fam_insts)
   case Map.lookup nm docs_decls of
-    Just doc -> pure $ Just (unpackHDS $ hsDocString doc)
+    Just doc -> pure $ Just (unpackHDS . concatHDS $ hsDocStrings doc)
     Nothing -> do
       -- Wasn't in the current module. Try searching other external ones!
       mIface <- getExternalModIface nm
       case mIface of
         Just ModIface { mi_docs = Just Docs{docs_decls = dmap} } ->
-          pure $ unpackHDS . hsDocString <$> Map.lookup nm dmap
+          pure $ unpackHDS . concatHDS . hsDocStrings <$> Map.lookup nm dmap
         _ -> pure Nothing
 
 -- | Like 'lookupDeclDoc', looks up documentation for a function argument. If
@@ -1358,12 +1358,12 @@ lookupArgDoc i nm = do
   df <- getDynFlags
   Docs{docs_args = argDocs} <- fmap (fromMaybe emptyDocs) $ getGblEnv >>= extractDocs df
   case Map.lookup nm argDocs of
-    Just m -> pure $ unpackHDS . hsDocString <$> IntMap.lookup i m
+    Just m -> pure $ unpackHDS . concatHDS . hsDocStrings <$> IntMap.lookup i m
     Nothing -> do
       mIface <- getExternalModIface nm
       case mIface of
         Just ModIface { mi_docs = Just Docs{docs_args = amap} } ->
-          pure $ unpackHDS . hsDocString <$> (Map.lookup nm amap >>= IntMap.lookup i)
+          pure $ unpackHDS . concatHDS . hsDocStrings <$> (Map.lookup nm amap >>= IntMap.lookup i)
         _ -> pure Nothing
 
 -- | Returns the module a Name belongs to, if it is isn't local.

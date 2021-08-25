@@ -37,7 +37,6 @@ module GHC.Parser
    , parseStmt, parseIdentifier
    , parseType, parseHeader
    , parseModuleNoHaddock
-   , lexHsDoc'
    )
 where
 
@@ -911,12 +910,12 @@ missing_module_keyword :: { () }
 implicit_top :: { () }
         : {- empty -}                           {% pushModuleContext }
 
-maybemodwarning :: { Maybe (LocatedP (WarningTxt (HsDoc RdrName))) }
+maybemodwarning :: { Maybe (LocatedP (WarningTxt GhcPs)) }
     : '{-# DEPRECATED' strings '#-}'
-                      {% fmap Just $ amsrp (sLL $1 $> $ WarningTxt (sL1 $1 $ WithSourceText (getDEPRECATED_PRAGs $1) WsDeprecated Nothing) (map stringLiteralToHsDocWst $ snd $ unLoc $2))
+                      {% fmap Just $ amsrp (sLL $1 $> $ DeprecatedTxt (sL1 $1 $ getDEPRECATED_PRAGs $1) (map stringLiteralToHsDocWst $ snd $ unLoc $2))
                               (AnnPragma (mo $1) (mc $3) (fst $ unLoc $2)) }
     | '{-# WARNING' strings '#-}'
-                         {% fmap Just $ amsrp (sLL $1 $> $ WarningTxt (sL1 $1 $ WithSourceText (getWARNING_PRAGs $1) WsWarning Nothing) (map stringLiteralToHsDocWst $ snd $ unLoc $2))
+                         {% fmap Just $ amsrp (sLL $1 $> $ WarningTxt (sL1 $1 $ getWARNING_PRAGs $1) (map stringLiteralToHsDocWst $ snd $ unLoc $2))
                                  (AnnPragma (mo $1) (mc $3) (fst $ unLoc $2))}
     |  {- empty -}                  { Nothing }
 
@@ -1947,7 +1946,7 @@ warning :: { OrdList (LWarnDecl GhcPs) }
         : namelist strings
                 {% fmap unitOL $ acsA (\cs -> sLL $1 $>
                      (Warning (EpAnn (glR $1) (fst $ unLoc $2) cs) (unLoc $1)
-                              (WarningTxt (noLoc (noSourceText WsWarning)) $ map stringLiteralToHsDocWst $ snd $ unLoc $2))) }
+                              (WarningTxt (noLoc NoSourceText) $ map stringLiteralToHsDocWst $ snd $ unLoc $2))) }
 
 deprecations :: { OrdList (LWarnDecl GhcPs) }
         : deprecations ';' deprecation
@@ -1970,7 +1969,7 @@ deprecations :: { OrdList (LWarnDecl GhcPs) }
 deprecation :: { OrdList (LWarnDecl GhcPs) }
         : namelist strings
              {% fmap unitOL $ acsA (\cs -> sLL $1 $> $ (Warning (EpAnn (glR $1) (fst $ unLoc $2) cs) (unLoc $1)
-                                          (WarningTxt (noLoc $ noSourceText WsDeprecated) (map stringLiteralToHsDocWst $ snd $ unLoc $2)))) }
+                                          (DeprecatedTxt (noLoc NoSourceText) $ map stringLiteralToHsDocWst $ snd $ unLoc $2))) }
 
 strings :: { Located ([AddEpAnn],[Located StringLiteral]) }
     : STRING { sL1 $1 ([],[L (gl $1) (getStringLiteral $1)]) }
@@ -3954,12 +3953,12 @@ getSCC lt = do let s = getSTRING lt
                    then addFatalError $ mkPlainErrorMsgEnvelope (getLoc lt) $ PsErrSpaceInSCC
                    else return s
 
-lexHsDoc' :: String -> HsDoc RdrName
-lexHsDoc' = lexHsDoc (unLoc <$> parseIdentifier)
+lexHsDoc :: SrcSpan -> FastString -> HsDoc GhcPs
+lexHsDoc loc str = unLoc $ lexLHsDoc parseIdentifier $ L loc $ mkHsDocStringUtf8ByteString $ bytesFS str
 
-stringLiteralToHsDocWst :: Located StringLiteral -> Located (WithSourceText (HsDoc RdrName))
-stringLiteralToHsDocWst = fmap $ \(StringLiteral st fs sl) ->
-    WithSourceText st (lexHsDoc' (unpackFS fs)) sl
+stringLiteralToHsDocWst :: Located StringLiteral -> Located (WithSourceText (HsDoc GhcPs))
+stringLiteralToHsDocWst (L l (StringLiteral st fs sl)) =
+    L l (WithSourceText st (lexHsDoc l fs) sl)
 
 -- Utilities for combining source spans
 comb2 :: Located a -> Located b -> SrcSpan

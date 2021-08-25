@@ -4,16 +4,20 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module GHC.Hs.Doc
   ( HsDoc(..)
   , emptyHsDoc
   , appendHsDoc
   , concatHsDoc
+  , concatHDS
   , hsDocIds
   , LHsDoc
   , ppr_mbDoc
-  , HsDocString
+  , HsDocString(..)
   , LHsDocString
   , mkHsDocString
   , mkHsDocStringUtf8ByteString
@@ -21,11 +25,6 @@ module GHC.Hs.Doc
   , unpackHDS
   , hsDocStringToByteString
   , appendHDSAsParagraphs
-
-  , HsDocIdentifier(..)
-
-  , HsDocIdentifierSpan(..)
-
 
   , ExtractedTHDocs(..)
 
@@ -67,58 +66,17 @@ import GHC.LanguageExtensions.Type
 import Data.Semigroup
 import qualified GHC.Utils.Outputable as O
 import GHC.IO.Unsafe (unsafeDupablePerformIO)
-
--- | The location of an identifier in a 'HsDocString'.
-
--- TODO: This could be a newtype of Word64
-data HsDocIdentifierSpan = HsDocIdentifierSpan
-  { hsDocIdentifierSpanStart :: !Int
-    -- ^ The position of the first character of the identifier.
-  , hsDocIdentifierSpanEnd   :: !Int
-    -- ^ The position of the first character after the identifier.
-  } deriving (Eq, Show, Data)
-
-instance Binary HsDocIdentifierSpan where
-  put_ bh (HsDocIdentifierSpan a b) = do
-    put_ bh a
-    put_ bh b
-  get bh =
-    liftA2 HsDocIdentifierSpan (get bh) (get bh)
-
-instance Outputable HsDocIdentifierSpan where
-  ppr (HsDocIdentifierSpan a b) =
-    int a O.<> char '-' O.<> int b
-
-shiftHsDocIdentifierSpan :: Int -> HsDocIdentifierSpan -> HsDocIdentifierSpan
-shiftHsDocIdentifierSpan n (HsDocIdentifierSpan a b) =
-  HsDocIdentifierSpan (a + n) (b + n)
-
--- | An identifier from a docstring.
-data HsDocIdentifier name = HsDocIdentifier
-  { hsDocIdentifierSpan :: !HsDocIdentifierSpan
-  , hsDocIdentifierNames :: ![name]
-  } deriving (Eq, Show, Data, Functor, Foldable, Traversable)
-
-instance Binary name => Binary (HsDocIdentifier name) where
-  put_ bh (HsDocIdentifier span names) = do
-    put_ bh span
-    put_ bh names
-  get bh =
-    liftA2 HsDocIdentifier (get bh) (get bh)
-
-instance Outputable name => Outputable (HsDocIdentifier name) where
-  ppr (HsDocIdentifier span names) =
-    ppr span O.<> colon <+> ppr names
-
-shiftHsDocIdentifier :: Int -> HsDocIdentifier name -> HsDocIdentifier name
-shiftHsDocIdentifier n (HsDocIdentifier span names) =
-  HsDocIdentifier (shiftHsDocIdentifierSpan n span) names
+import Language.Haskell.Syntax.Extension
+import GHC.Hs.Extension
 
 -- | A docstring with the (probable) identifiers found in it.
-data HsDoc name = HsDoc
-  { hsDocString :: !HsDocString
-  , hsDocIdentifiers :: ![HsDocIdentifier name]
-  } deriving (Eq, Show, Data, Functor, Foldable, Traversable)
+data HsDoc pass = HsDoc
+  { hsDocStrings     :: ![HsDocString] -- List to support concatenating multiple docstrings
+  , hsDocIdentifiers :: ![Located (IdP pass)]
+  }
+
+deriving instance (Data pass, Data (IdP pass)) => Data (HsDoc pass)
+deriving instance (Eq (IdP pass)) => Eq (HsDoc pass)
 
 -- | For compatibility with the existing @-ddump-parsed' output, we only show
 -- the docstring.
@@ -129,7 +87,7 @@ data HsDoc name = HsDoc
 instance Outputable (HsDoc a) where
   ppr (HsDoc s _ids) = ppr s
 
-instance Binary name => Binary (HsDoc name) where
+instance Binary (HsDoc GhcRn) where
   put_ bh (HsDoc s ids) = do
     put_ bh s
     put_ bh ids
@@ -137,48 +95,33 @@ instance Binary name => Binary (HsDoc name) where
     liftA2 HsDoc (get bh) (get bh)
 
 emptyHsDoc :: HsDoc a
-emptyHsDoc = HsDoc (HsDocString BS.empty) []
+emptyHsDoc = HsDoc [] []
 
 -- | Non-empty docstrings are joined with two newlines in between,
 -- so haddock will treat two joined docstrings as separate paragraphs.
 appendHsDoc :: HsDoc a -> HsDoc a -> HsDoc a
-appendHsDoc (HsDoc s_x [])    y                 | nullHDS s_x = y
 appendHsDoc (HsDoc s_x ids_x) (HsDoc s_y ids_y) =
-    HsDoc (appendHDSAsParagraphs s_x s_y)
-          (ids_x ++ map shift ids_y)
-  where
-    -- The identifiers of the second docstring need to be shifted by the length
-    -- of the first docstring plus 2 positions for the two newlines that
-    -- 'appendHDSAsParagraphs' inserts in between.
-    shift = shiftHsDocIdentifier (lengthHDS s_x + 2)
+    HsDoc (s_x   ++ s_y)
+          (ids_x ++ ids_y)
 
 -- | Concatenate several 'HsDoc's with 'appendHsDoc'.
 --
 -- Returns 'Nothing' if all inputs are empty.
-concatHsDoc :: [HsDoc name] -> Maybe (HsDoc name)
-concatHsDoc xs =
-  -- Yes, this isn't particularly efficient but it's only used
-  -- when we have to concat multiple doc comments for the same
-  -- declaration which shouldn't happen too often.
-  case foldl' appendHsDoc emptyHsDoc xs of
-    HsDoc s [] | nullHDS s -> Nothing
-    x -> Just x
+concatHsDoc :: [HsDoc pass] -> HsDoc pass
+concatHsDoc = foldr appendHsDoc emptyHsDoc
 
 -- | Extract a mapping from the lexed identifiers to the names they may
 -- correspond to.
-hsDocIds :: HsDoc Name -> NameSet
-hsDocIds (HsDoc _ ids) =
-    (foldl' f emptyNameSet ids)
-  where
-    f ns HsDocIdentifier { hsDocIdentifierNames = names } = extendNameSetList ns names
+hsDocIds :: HsDoc GhcRn -> NameSet
+hsDocIds (HsDoc _ ids) = mkNameSet $ map unLoc ids
 
-pprHsDoc :: Outputable name => HsDoc name -> SDoc
+pprHsDoc :: Outputable (IdP name) => HsDoc name -> SDoc
 pprHsDoc (HsDoc s ids) =
     vcat [ text "text:" $$ nest 2 (ppr s)
          , text "identifiers:" $$ nest 2 (vcat (map ppr ids))
          ]
 
-type LHsDoc name = Located (HsDoc name)
+type LHsDoc pass = Located (HsDoc pass)
 
 ppr_mbDoc :: Maybe (LHsDoc a) -> SDoc
 ppr_mbDoc (Just doc) = ppr doc
@@ -243,8 +186,8 @@ type LHsDocString = Located HsDocString
 
 -- | A simplified version of 'HsImpExp.IE'.
 data DocStructureItem
-  = DsiSectionHeading Int (HsDoc Name)
-  | DsiDocChunk (HsDoc Name)
+  = DsiSectionHeading Int (HsDoc GhcRn)
+  | DsiDocChunk (HsDoc GhcRn)
   | DsiNamedChunkRef String
   | DsiExports Avails
   | DsiModExport
@@ -308,14 +251,14 @@ type DocStructure = [DocStructureItem]
 
 -- TODO: Maybe combine the various @(Map Name X)@s to a single map.
 data Docs = Docs
-  { docs_mod_hdr      :: Maybe (HsDoc Name)
+  { docs_mod_hdr      :: Maybe (HsDoc GhcRn)
     -- ^ Module header.
-  , docs_decls        :: Map Name (HsDoc Name)
+  , docs_decls        :: Map Name (HsDoc GhcRn)
     -- ^ Docs for declarations: functions, data types, instances, methods etc.
-  , docs_args         :: Map Name (IntMap (HsDoc Name))
+  , docs_args         :: Map Name (IntMap (HsDoc GhcRn))
     -- ^ Docs for arguments. E.g. function arguments, method arguments.
   , docs_structure    :: DocStructure
-  , docs_named_chunks :: Map String (HsDoc Name)
+  , docs_named_chunks :: Map String (HsDoc GhcRn)
     -- ^ Map from chunk name to content.
     --
     -- This map will be empty unless we have an explicit export list from which

@@ -707,12 +707,17 @@ instance ExactPrint ModuleName where
 
 -- ---------------------------------------------------------------------
 
-instance ExactPrint a => ExactPrint (LocatedP (WarningTxt a)) where
+instance ExactPrint (LocatedP (WarningTxt GhcPs)) where
   getAnnotationEntry = entryFromLocatedA
-  exact (L (SrcSpanAnn an _) (WarningTxt (L _ (WithSourceText src w _tc)) ws)) = do
-    case w of
-      WsWarning -> markAnnOpenP an src "{-# WARNING"
-      WsDeprecated -> markAnnOpenP an src "{-# DEPRECATED"
+  exact (L (SrcSpanAnn an _) (WarningTxt (L _ src) ws)) = do
+    markAnnOpenP an src "{-# WARNING"
+    markLocatedAAL an apr_rest AnnOpenS
+    markAnnotated ws
+    markLocatedAAL an apr_rest AnnCloseS
+    markAnnCloseP an
+
+  exact (L (SrcSpanAnn an _) (DeprecatedTxt (L _ src) ws)) = do
+    markAnnOpenP an src "{-# DEPRECATED"
     markLocatedAAL an apr_rest AnnOpenS
     markAnnotated ws
     markLocatedAAL an apr_rest AnnCloseS
@@ -771,10 +776,9 @@ instance ExactPrint HsDocString where
   getAnnotationEntry _ = NoEntryVal
   exact = withPpr -- TODO:AZ use annotations
 
-instance ExactPrint (HsDoc RdrName) where
+instance ExactPrint (HsDoc GhcPs) where
   getAnnotationEntry _ = NoEntryVal
-  exact = exact . hsDocString
-
+  exact = exact . hsDocStrings
 -- ---------------------------------------------------------------------
 
 instance ExactPrint (HsDecl GhcPs) where
@@ -963,6 +967,7 @@ instance ExactPrint (WarnDecl GhcPs) where
     markEpAnn an AnnOpenS -- "["
     case txt of
       WarningTxt    _src ls -> markAnnotated ls
+      DeprecatedTxt _src ls -> markAnnotated ls
     markEpAnn an AnnCloseS -- "]"
 
 -- ---------------------------------------------------------------------
@@ -1069,10 +1074,10 @@ instance ExactPrint (DocDecl GhcPs) where
   exact v =
     let str =
           case v of
-            (DocCommentNext ds)     -> unpackHDS $ hsDocString ds
-            (DocCommentPrev ds)     -> unpackHDS $ hsDocString ds
-            (DocCommentNamed _s ds) -> unpackHDS $ hsDocString ds
-            (DocGroup _i ds)        -> unpackHDS $ hsDocString ds
+            (DocCommentNext ds)     -> unpackHDS $ concatHDS $ hsDocStrings $ unLoc ds
+            (DocCommentPrev ds)     -> unpackHDS $ concatHDS $ hsDocStrings $ unLoc ds
+            (DocCommentNamed _s ds) -> unpackHDS $ concatHDS $ hsDocStrings $ unLoc ds
+            (DocGroup _i ds)        -> unpackHDS $ concatHDS $ hsDocStrings $ unLoc ds
     in
       printStringAdvance str
 

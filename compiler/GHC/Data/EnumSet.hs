@@ -1,5 +1,5 @@
-{-# language BangPatterns #-}
-{-# language GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 -- | A tiny wrapper around 'IntSet.IntSet' for representing sets of 'Enum'
 -- things.
 module GHC.Data.EnumSet

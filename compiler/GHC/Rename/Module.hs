@@ -13,7 +13,7 @@ Main pass of renamer
 -}
 
 module GHC.Rename.Module (
-        rnSrcDecls, addTcgDUs, findSplice
+        rnSrcDecls, addTcgDUs, findSplice, rnWarningTxt
     ) where
 
 import GHC.Prelude
@@ -265,7 +265,7 @@ gather them together.
 -}
 
 -- checks that the deprecations are defined locally, and that there are no duplicates
-rnSrcWarnDecls :: NameSet -> [LWarnDecls GhcPs] -> RnM (Warnings (HsDoc Name))
+rnSrcWarnDecls :: NameSet -> [LWarnDecls GhcPs] -> RnM (Warnings GhcRn)
 rnSrcWarnDecls _ []
   = return NoWarnings
 
@@ -285,13 +285,22 @@ rnSrcWarnDecls bndr_set decls'
        -- ensures that the names are defined locally
      = do { names <- concatMapM (lookupLocalTcNames sig_ctxt what . unLoc)
                                 rdr_names
-          ; txt' <- traverse rnHsDoc txt
+          ; txt' <- rnWarningTxt txt
           ; return [(rdrNameOcc rdr, txt') | (rdr, _) <- names] }
 
    what = text "deprecation"
 
    warn_rdr_dups = findDupRdrNames
                    $ concatMap (\(L _ (Warning _ ns _)) -> ns) decls
+
+rnWarningTxt :: WarningTxt GhcPs -> RnM (WarningTxt GhcRn)
+rnWarningTxt (WarningTxt st wst) = do
+  wst' <- traverse (traverse (traverse rnHsDoc)) wst
+  pure (WarningTxt st wst')
+rnWarningTxt (DeprecatedTxt st wst) = do
+  wst' <- traverse (traverse (traverse rnHsDoc)) wst
+  pure (DeprecatedTxt st wst')
+
 
 findDupRdrNames :: [LocatedN RdrName] -> [NonEmpty (LocatedN RdrName)]
 findDupRdrNames = findDupsEq (\ x -> \ y -> rdrNameOcc (unLoc x) == rdrNameOcc (unLoc y))

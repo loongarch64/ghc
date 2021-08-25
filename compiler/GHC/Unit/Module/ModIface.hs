@@ -106,7 +106,7 @@ data ModIfaceBackend = ModIfaceBackend
     -- other fields and are not put into the interface file.
     -- Not really produced by the backend but there is no need to create them
     -- any earlier.
-  , mi_warn_fn :: !(OccName -> Maybe (WarningTxt (HsDoc Name)))
+  , mi_warn_fn :: !(OccName -> Maybe (WarningTxt GhcRn))
     -- ^ Cached lookup for 'mi_warns'
   , mi_fix_fn :: !(OccName -> Maybe Fixity)
     -- ^ Cached lookup for 'mi_fixities'
@@ -178,7 +178,7 @@ data ModIface_ (phase :: ModIfacePhase)
                 -- ^ Fixities
                 -- NOT STRICT!  we read this field lazily from the interface file
 
-        mi_warns    :: Warnings (HsDoc Name),
+        mi_warns    :: (Warnings GhcRn),
                 -- ^ Warnings
                 -- NOT STRICT!  we read this field lazily from the interface file
 

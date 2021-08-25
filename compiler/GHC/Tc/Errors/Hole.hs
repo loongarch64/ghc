@@ -465,7 +465,7 @@ addHoleFitDocs fits =
                 ; return fit }
             ; Just docs -> do
                 { let doc = Map.lookup name (docs_decls docs)
-                ; return $ fit {hfDoc = hsDocString <$> doc} }}}
+                ; return $ fit {hfDoc = hsDocStrings <$> doc} }}}
    upd _ _ fit = pure fit
    nameOrigin name = case nameModule_maybe name of
      Just m  -> Right m
@@ -531,7 +531,7 @@ pprHoleFit (HFDC sWrp sWrpVars sTy sProv sMs) (HoleFit {..}) =
                                      else tyAppVars
        docs = case hfDoc of
                 Just d -> text "{-^" <>
-                          (vcat . map text . lines . unpackHDS) d
+                          (vcat . map text . concatMap lines . map unpackHDS) d
                           <> text "-}"
                 _ -> empty
        funcInfo = ppWhen (has hfMatches && sTy) $

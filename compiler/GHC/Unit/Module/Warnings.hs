@@ -1,12 +1,14 @@
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 -- | Warnings for a module
 module GHC.Unit.Module.Warnings
    ( Warnings (..)
    , WarningTxt (..)
-   , WarningSort (..)
-   , warningTxtContents
+   , pprWarningTxtForMsg
    , mkIfaceWarnCache
    , emptyIfaceWarnCache
    , plusWarns
@@ -18,66 +20,83 @@ import GHC.Prelude
 import GHC.Types.SourceText
 import GHC.Types.Name.Occurrence
 import GHC.Types.SrcLoc
+import GHC.Hs.Doc
+import GHC.Hs.Extension
 
 import GHC.Utils.Outputable
 import GHC.Utils.Binary
-import Control.Monad
+
+import Language.Haskell.Syntax.Extension
 
 import Data.Data
 
 -- | Warning Text
 --
 -- reason/explanation from a WARNING or DEPRECATED pragma
-data WarningTxt text = WarningTxt
-  { wt_sort :: !(Located (WithSourceText WarningSort))
-  , wt_warning :: ![Located (WithSourceText text)]
-  } deriving (Eq, Data, Functor, Foldable, Traversable)
+data WarningTxt pass
+   = WarningTxt
+      (Located SourceText)
+      [Located (WithSourceText (HsDoc pass))]
+   | DeprecatedTxt
+      (Located SourceText)
+      [Located (WithSourceText (HsDoc pass))]
 
--- | Ignores source locations and 'SourceText's.
-instance Binary text => Binary (WarningTxt text) where
-  put_ bh w = do
-    let (sort_, ws) = warningTxtContents w
-    put_ bh sort_
-    put_ bh ws
-  get bh = do
-    sort_ <- get bh
-    ws <- get bh
-    pure $ WarningTxt (noLoc $ noSourceText sort_)
-                      (map (noLoc . noSourceText) ws)
+deriving instance Eq (IdP pass) => Eq (WarningTxt pass)
+deriving instance (Data pass, Data (IdP pass)) => Data (WarningTxt pass)
 
--- Yeah, this is a funny instance.
--- It makes Ppr035, Ppr036 and Ppr046 pass though!
-instance Outputable text => Outputable (WarningTxt text) where
-  ppr (WarningTxt lsort lws) =
-    case wst_st (unLoc lsort) of
-      NoSourceText -> pp_ws lws
-      SourceText src -> text src <+> pp_ws lws <+> text "#-}"
-    where
-      pp_ws [l] = ppr $ unLoc l
-      pp_ws ws = ppr $ map unLoc ws
+instance Outputable (HsDoc pass) => Outputable (WarningTxt pass) where
+    ppr (WarningTxt    lsrc ws)
+      = case unLoc lsrc of
+          NoSourceText   -> pp_ws ws
+          SourceText src -> text src <+> pp_ws ws <+> text "#-}"
 
-warningTxtContents :: WarningTxt text -> (WarningSort, [text])
-warningTxtContents (WarningTxt srt ws) =
-    (unWithSourceText $ unLoc srt, map (unWithSourceText . unLoc) ws)
+    ppr (DeprecatedTxt lsrc  ds)
+      = case unLoc lsrc of
+          NoSourceText   -> pp_ws ds
+          SourceText src -> text src <+> pp_ws ds <+> text "#-}"
 
-data WarningSort
-  = WsWarning
-  | WsDeprecated
-  deriving (Data, Eq, Enum)
+instance Binary (WarningTxt GhcRn) where
+    put_ bh (WarningTxt s w) = do
+            putByte bh 0
+            put_ bh s
+            put_ bh w
+    put_ bh (DeprecatedTxt s d) = do
+            putByte bh 1
+            put_ bh s
+            put_ bh d
 
-instance Binary WarningSort where
-  put_ bh = putByte bh . fromIntegral . fromEnum
-  get  bh = toEnum . fromIntegral <$!> getByte bh
+    get bh = do
+            h <- getByte bh
+            case h of
+              0 -> do s <- get bh
+                      w <- get bh
+                      return (WarningTxt s w)
+              _ -> do s <- get bh
+                      d <- get bh
+                      return (DeprecatedTxt s d)
 
-instance Outputable WarningSort where
-  ppr WsWarning = text "Warning"
-  ppr WsDeprecated = text "Deprecated"
+
+pp_ws :: Outputable (HsDoc p) => [Located (WithSourceText (HsDoc p))] -> SDoc
+pp_ws [l] = ppr $ unLoc l
+pp_ws ws
+  = text "["
+    <+> vcat (punctuate comma (map (ppr . unLoc) ws))
+    <+> text "]"
+
+
+pprWarningTxtForMsg :: WarningTxt p -> SDoc
+pprWarningTxtForMsg (WarningTxt    _ ws)
+                     = doubleQuotes (vcat (map (ppr . unWithSourceText . unLoc) ws))
+pprWarningTxtForMsg (DeprecatedTxt _ ds)
+                     = text "Deprecated:" <+>
+                       doubleQuotes (vcat (map (ppr . unWithSourceText . unLoc) ds))
+
 
 -- | Warning information for a module
-data Warnings text
+data Warnings pass
   = NoWarnings                          -- ^ Nothing deprecated
-  | WarnAll (WarningTxt text)                  -- ^ Whole module deprecated
-  | WarnSome [(OccName,WarningTxt text)]     -- ^ Some specific things deprecated
+  | WarnAll (WarningTxt pass)                  -- ^ Whole module deprecated
+  | WarnSome [(OccName,WarningTxt pass)]     -- ^ Some specific things deprecated
 
      -- Only an OccName is needed because
      --    (1) a deprecation always applies to a binding
@@ -99,9 +118,10 @@ data Warnings text
      --
      --        this is in contrast with fixity declarations, where we need to map
      --        a Name to its fixity declaration.
-  deriving( Eq )
 
-instance Binary a => Binary (Warnings a) where
+deriving instance Eq (IdP pass) => Eq (Warnings pass)
+
+instance Binary (Warnings GhcRn) where
     put_ bh NoWarnings     = putByte bh 0
     put_ bh (WarnAll t) = do
             putByte bh 1
@@ -119,24 +139,16 @@ instance Binary a => Binary (Warnings a) where
               _ -> do aa <- get bh
                       return (WarnSome aa)
 
-instance Outputable text => Outputable (Warnings text) where
-  ppr NoWarnings     = empty
-  ppr (WarnAll txt)  = text "Warn all:" <+> ppr txt
-  ppr (WarnSome prs) = text "Warnings:"
-                       <+> nest 2 (vcat (map pprWarning prs))
-    where
-      pprWarning (name, txt) = ppr name <> colon <+> ppr txt
-
 -- | Constructs the cache for the 'mi_warn_fn' field of a 'ModIface'
-mkIfaceWarnCache :: Warnings text -> OccName -> Maybe (WarningTxt text)
+mkIfaceWarnCache :: Warnings p -> OccName -> Maybe (WarningTxt p)
 mkIfaceWarnCache NoWarnings  = \_ -> Nothing
 mkIfaceWarnCache (WarnAll t) = \_ -> Just t
 mkIfaceWarnCache (WarnSome pairs) = lookupOccEnv (mkOccEnv pairs)
 
-emptyIfaceWarnCache :: OccName -> Maybe (WarningTxt text)
+emptyIfaceWarnCache :: OccName -> Maybe (WarningTxt p)
 emptyIfaceWarnCache _ = Nothing
 
-plusWarns :: Warnings a -> Warnings a -> Warnings a
+plusWarns :: Warnings p -> Warnings p -> Warnings p
 plusWarns d NoWarnings = d
 plusWarns NoWarnings d = d
 plusWarns _ (WarnAll t) = WarnAll t

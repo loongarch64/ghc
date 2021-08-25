@@ -69,12 +69,12 @@ import Data.Functor.Identity
 import Data.Coerce
 import qualified Data.Monoid
 
+import {-# SOURCE #-} GHC.Parser (parseIdentifier)
 import GHC.Parser.Lexer
-import {-# SOURCE #-} GHC.Parser (lexHsDoc')
+import GHC.Parser.HaddockLex
 import GHC.Parser.Errors.Types
 import GHC.Utils.Misc (mergeListsBy, filterOut, mapLastM, (<&&>))
 import qualified GHC.Data.Strict as Strict
-import GHC.Types.Name.Reader (RdrName)
 
 {- Note [Adding Haddock comments to the syntax tree]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -297,11 +297,8 @@ instance HasHaddock (Located HsModule) where
           , hsmodDecls = hsmodDecls'
           , hsmodHaddockModHeader = join @Maybe headerDocs }
 
-lexLHsDocString :: LHsDocString -> LHsDoc RdrName
-lexLHsDocString = fmap lexHsDocString
-
-lexHsDocString :: HsDocString -> HsDoc RdrName
-lexHsDocString = lexHsDoc' . unpackHDS
+lexLHsDocString :: LHsDocString -> LHsDoc GhcPs
+lexLHsDocString = lexLHsDoc parseIdentifier
 
 -- Only for module exports, not module imports.
 --
@@ -1299,13 +1296,14 @@ selectDocString = select . filterOut (isEmptyDocString . unLoc)
       reportExtraDocs extra_docs
       return (Just doc)
 
-selectDoc :: [LHsDoc a] -> HdkM (Maybe (LHsDoc a))
-selectDoc = select . filterOut (isEmptyDocString . hsDocString . unLoc)
+selectDoc :: forall a. [LHsDoc a] -> HdkM (Maybe (LHsDoc a))
+selectDoc = select . filterOut (all isEmptyDocString . hsDocStrings . unLoc)
   where
+    select :: [LHsDoc a] -> HdkM (Maybe (LHsDoc a))
     select [] = return Nothing
     select [doc] = return (Just doc)
     select (doc : extra_docs) = do
-      reportExtraDocs $ map (fmap hsDocString) extra_docs
+      reportExtraDocs $ concatMap (\(L l d) -> fmap (L l) $ hsDocStrings d) extra_docs
       return (Just doc)
 
 reportExtraDocs :: [LHsDocString] -> HdkM ()
@@ -1327,10 +1325,10 @@ mkDocDecl layout_info (L l_comment hdk_comment)
   | otherwise =
     Just $ L (noAnnSrcSpan $ mkSrcSpanPs l_comment) $
       case hdk_comment of
-        HdkCommentNext doc -> DocCommentNext (lexHsDocString doc)
-        HdkCommentPrev doc -> DocCommentPrev (lexHsDocString doc)
-        HdkCommentNamed s doc -> DocCommentNamed s (lexHsDocString doc)
-        HdkCommentSection n doc -> DocGroup n (lexHsDocString doc)
+        HdkCommentNext doc -> DocCommentNext (lexLHsDocString doc)
+        HdkCommentPrev doc -> DocCommentPrev (lexLHsDocString doc)
+        HdkCommentNamed s doc -> DocCommentNamed s (lexLHsDocString doc)
+        HdkCommentSection n doc -> DocGroup n (lexLHsDocString doc)
   where
     --  'indent_mismatch' checks if the documentation comment has the exact
     --  indentation level expected by the parent node.
@@ -1360,18 +1358,18 @@ mkDocDecl layout_info (L l_comment hdk_comment)
 mkDocIE :: PsLocated HdkComment -> Maybe (LIE GhcPs)
 mkDocIE (L l_comment hdk_comment) =
   case hdk_comment of
-    HdkCommentSection n doc -> Just $ L l (IEGroup noExtField n $ lexHsDocString doc)
+    HdkCommentSection n doc -> Just $ L l (IEGroup noExtField n $ lexLHsDocString doc)
     HdkCommentNamed s _doc -> Just $ L l (IEDocNamed noExtField s)
-    HdkCommentNext doc -> Just $ L l (IEDoc noExtField $ lexHsDocString doc)
+    HdkCommentNext doc -> Just $ L l (IEDoc noExtField $ lexLHsDocString doc)
     _ -> Nothing
   where l = noAnnSrcSpan $ mkSrcSpanPs l_comment
 
 mkDocNext :: PsLocated HdkComment -> Maybe LHsDocString
-mkDocNext (L l (HdkCommentNext doc)) = Just $ L (mkSrcSpanPs l) doc
+mkDocNext (L _ (HdkCommentNext doc)) = Just doc
 mkDocNext _ = Nothing
 
 mkDocPrev :: PsLocated HdkComment -> Maybe LHsDocString
-mkDocPrev (L l (HdkCommentPrev doc)) = Just $ L (mkSrcSpanPs l) doc
+mkDocPrev (L _ (HdkCommentPrev doc)) = Just doc
 mkDocPrev _ = Nothing
 
 

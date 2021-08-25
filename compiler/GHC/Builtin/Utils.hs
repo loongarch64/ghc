@@ -277,7 +277,7 @@ ghcPrimDeclDocs = emptyDocs { docs_decls = Map.fromList $ mapMaybe findName prim
             map tyConName exposedPrimTyCons
     findName (nameStr, doc)
       | Just name <- find ((nameStr ==) . getOccString) names
-      = Just (name, HsDoc (mkHsDocString doc) [])
+      = Just (name, HsDoc [mkHsDocString doc] [])
       | otherwise = Nothing
 
 {-

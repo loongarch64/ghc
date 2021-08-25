@@ -96,7 +96,7 @@ data HsModule
         -- downstream.
       hsmodDecls :: [LHsDecl GhcPs],
         -- ^ Type, class, value, and interface signature decls
-      hsmodDeprecMessage :: Maybe (LocatedP (WarningTxt (HsDoc (IdP GhcPs)))),
+      hsmodDeprecMessage :: Maybe (LocatedP (WarningTxt GhcPs)),
         -- ^ reason\/explanation for warning/deprecation of this module
         --
         --  - 'GHC.Parser.Annotation.AnnKeywordId's : 'GHC.Parser.Annotation.AnnOpen'
@@ -104,7 +104,7 @@ data HsModule
         --
 
         -- For details on above see note [exact print annotations] in GHC.Parser.Annotation
-      hsmodHaddockModHeader :: Maybe (LHsDoc (IdP GhcPs))
+      hsmodHaddockModHeader :: Maybe (LHsDoc GhcPs)
         -- ^ Haddock module info and description, unparsed
         --
         --  - 'GHC.Parser.Annotation.AnnKeywordId's : 'GHC.Parser.Annotation.AnnOpen'

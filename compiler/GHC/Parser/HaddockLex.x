@@ -3,24 +3,29 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 
-module GHC.Parser.HaddockLex (lexHsDoc) where
+module GHC.Parser.HaddockLex (lexLHsDoc) where
 
 import GHC.Prelude
 
 import GHC.Data.FastString
 import GHC.Hs.Doc
 import GHC.Parser.Lexer
+import GHC.Parser.Annotation
 import GHC.Types.SrcLoc
 import GHC.Data.StringBuffer
 import GHC.Types.Name.Reader
 import GHC.Utils.Outputable
 import GHC.Utils.Error
+import GHC.Utils.Encoding
+import GHC.Hs.Extension
 
 import qualified GHC.Data.EnumSet as EnumSet
 
-import Data.Char
 import Data.Maybe
 import Data.Word
+
+import Data.ByteString ( ByteString )
+import qualified Data.ByteString as BS
 
 import qualified GHC.LanguageExtensions as LangExt
 }
@@ -53,86 +58,71 @@ $idchar = [$alpha $digit \']
 
 {
 data AlexInput = AlexInput
-  { alexInput_position     :: !Offset
-  , alexInput_pendingBytes :: [Word8]
-  , alexInput_string       :: String
+  { alexInput_position     :: !RealSrcLoc
+  , alexInput_string       :: !ByteString
   }
-
-newtype Offset = Offset Int
-  deriving (Enum, Show)
 
 -- NB: As long as we don't use a left-context we don't need to track the
 -- previous input character.
-alexInputPrevChar :: AlexInput -> Char
+alexInputPrevChar :: AlexInput -> Word8
 alexInputPrevChar = error "Left-context not supported"
 
 alexGetByte :: AlexInput -> Maybe (Word8, AlexInput)
-alexGetByte (AlexInput p (b:bs) s    ) = Just (b, AlexInput p bs s)
-alexGetByte (AlexInput p []     (c:s)) = case utf8Encode c of
-                                           (b:bs) -> Just (b, AlexInput (succ p) bs s)
-                                           _ -> error "utf8Encode must return at least one character"
-alexGetByte (AlexInput _ []     ""   ) = Nothing
+alexGetByte (AlexInput p s) = case utf8UnconsByteString s of
+  Nothing -> Nothing
+  Just (c,bs) -> Just (adjustChar c, AlexInput (advanceSrcLoc p c) bs)
 
-utf8Encode :: Char -> [Word8]
-utf8Encode = map fromIntegral . go . ord
-  where go oc
-          | oc <= 0x7f   = [oc]
-          | oc <= 0x7ff  = [ 0xc0 + (oc `unsafeShiftR` 6)
-                           , 0x80 + oc .&. 0x3f
-                           ]
-          | oc <= 0xffff = [ 0xe0 + (oc `unsafeShiftR` 12)
-                           , 0x80 + ((oc `unsafeShiftR` 6) .&. 0x3f)
-                           , 0x80 + oc .&. 0x3f
-                           ]
-          | otherwise    = [ 0xf0 + (oc `unsafeShiftR` 18)
-                           , 0x80 + ((oc `unsafeShiftR` 12) .&. 0x3f)
-                           , 0x80 + ((oc `unsafeShiftR` 6) .&. 0x3f)
-                           , 0x80 + oc .&. 0x3f
-                           ]
-
-alexScanTokens :: String -> [(Int, String, Int)]
-alexScanTokens str0 = go (AlexInput (Offset 0) [] str0)
-  where go inp@(AlexInput pos _ str) =
+alexScanTokens :: RealSrcLoc -> ByteString -> [(RealSrcSpan, ByteString)]
+alexScanTokens start str0 = go (AlexInput start str0)
+  where go inp@(AlexInput pos str) =
           case alexScan inp 0 of
             AlexSkip  inp' _ln          -> go inp'
-            AlexToken inp' len act      -> act pos len str : go inp'
+            AlexToken inp'@(AlexInput _ str') _ act -> act pos (BS.length str - BS.length str') str : go inp'
             AlexEOF                     -> []
-            AlexError (AlexInput p _ _) -> error $ "lexical error at " ++ show p
+            AlexError (AlexInput p _) -> error $ "lexical error at " ++ show p
 
 --------------------------------------------------------------------------------
 
 -- | Extract identifier from Alex state.
 getIdentifier :: Int -- ^ adornment length
-              -> Offset
+              -> RealSrcLoc
               -> Int
                  -- ^ Token length
-              -> String
+              -> ByteString
                  -- ^ The remaining input beginning with the found token
-              -> (Int, String, Int)
-getIdentifier i (Offset off0) len0 s0 =
-    (off1, s1, off1 + len1)
+              -> (RealSrcSpan, ByteString)
+getIdentifier !i !loc0 !len0 !s0 =
+    (mkRealSrcSpan loc1 loc2, ident)
   where
-    off1 = off0 + i
-    len1 = len0 - (2*i)
-    s1 = take len1 (drop i s0)
+    (adornment, s1) = BS.splitAt i s0
+    ident = BS.take (len0 - 2*i) s1 
+    loc1 = advanceSrcLocBS loc0 adornment
+    loc2 = advanceSrcLocBS loc1 ident
+
+advanceSrcLocBS :: RealSrcLoc -> ByteString -> RealSrcLoc
+advanceSrcLocBS !loc bs = case utf8UnconsByteString bs of
+  Nothing -> loc
+  Just (c, bs') -> advanceSrcLocBS (advanceSrcLoc loc c) bs' 
 
 -- | Lex identifiers from a docstring.
-lexHsDoc :: P RdrName      -- ^ A precise identifier parser
-         -> String         -- ^ A docstring
-         -> HsDoc RdrName
-lexHsDoc identParser s =
-    HsDoc (mkHsDocString s) (mapMaybe maybeDocIdentifier plausibleIdents)
+lexLHsDoc :: P (LocatedN RdrName)      -- ^ A precise identifier parser
+         -> LHsDocString -- ^ A docstring
+         -> LHsDoc GhcPs
+lexLHsDoc identParser (L l doc@(HsDocString s)) =
+    L l (HsDoc [doc] (mapMaybe maybeDocIdentifier plausibleIdents))
   where
-    maybeDocIdentifier :: (Int, String, Int) -> Maybe (HsDocIdentifier RdrName)
-    maybeDocIdentifier (ix0, pid, ix1) =
-      HsDocIdentifier (HsDocIdentifierSpan ix0 ix1) . (: [])
-        <$> validateIdentWith identParser pid
+    maybeDocIdentifier :: (RealSrcSpan, ByteString) -> Maybe (Located RdrName)
+    maybeDocIdentifier = uncurry (validateIdentWith identParser)
 
-    plausibleIdents :: [(Int, String, Int)]
-    plausibleIdents = alexScanTokens s
+    plausibleIdents :: [(RealSrcSpan,ByteString)]
+    plausibleIdents = alexScanTokens (realSrcSpanStart rl) s
 
-validateIdentWith :: P RdrName -> String -> Maybe RdrName
-validateIdentWith identParser str0 =
+    rl = case l of
+      RealSrcSpan s _ -> s
+      UnhelpfulSpan _ -> realSrcLocSpan $ mkRealSrcLoc (mkFastString "") 0 0
+
+validateIdentWith :: P (LocatedN RdrName) -> RealSrcSpan -> ByteString -> Maybe (Located RdrName)
+validateIdentWith identParser loc str0 =
   let -- These ParserFlags should be as "inclusive" as possible, allowing
       -- identifiers defined with any language extension.
       pflags = mkParserOpts
@@ -148,10 +138,10 @@ validateIdentWith identParser str0 =
           , diag_max_errors = Nothing
           , diag_ppr_ctx = defaultSDocContext
         }
-      buffer = stringToStringBuffer str0
-      realSrcLc = mkRealSrcLoc (mkFastString "") 0 0
+      buffer = stringBufferFromByteString str0
+      realSrcLc = realSrcSpanStart loc
       pstate = initParserState pflags buffer realSrcLc
   in case unP identParser pstate of
-    POk _ name -> Just name
+    POk _ name -> Just $ reLoc name
     _ -> Nothing
 }

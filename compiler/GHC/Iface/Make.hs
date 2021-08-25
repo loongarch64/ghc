@@ -227,7 +227,7 @@ mkIfaceTc hsc_env safe_mode mod_details mod_summary
 
 mkIface_ :: HscEnv -> Module -> HscSource
          -> Bool -> Dependencies -> GlobalRdrEnv
-         -> NameEnv FixItem -> Warnings (HsDoc Name) -> HpcInfo
+         -> NameEnv FixItem -> Warnings GhcRn -> HpcInfo
          -> Bool
          -> SafeHaskellMode
          -> [Usage]

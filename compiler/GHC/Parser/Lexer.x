@@ -76,6 +76,7 @@ module GHC.Parser.Lexer (
    commentToAnnotation,
    HdkComment(..),
    warnopt,
+   adjustChar,
    addPsMessage
   ) where
 
@@ -1451,17 +1452,17 @@ withLexedDocType lexDocComment = do
       Nothing -> do setInput input; lexToken -- eof reached, lex it normally
 
 mkHdkCommentNext, mkHdkCommentPrev :: PsSpan -> String -> (HdkComment, Token)
-mkHdkCommentNext loc str = (HdkCommentNext (mkHsDocString str), ITdocCommentNext str loc)
-mkHdkCommentPrev loc str = (HdkCommentPrev (mkHsDocString str), ITdocCommentPrev str loc)
+mkHdkCommentNext loc str = (HdkCommentNext (L (mkSrcSpanPs loc) (mkHsDocString str)), ITdocCommentNext str loc)
+mkHdkCommentPrev loc str = (HdkCommentPrev (L (mkSrcSpanPs loc) (mkHsDocString str)), ITdocCommentPrev str loc)
 
 mkHdkCommentNamed :: PsSpan -> String -> (HdkComment, Token)
 mkHdkCommentNamed loc str =
   let (name, rest) = break isSpace str
-  in (HdkCommentNamed name (mkHsDocString rest), ITdocCommentNamed str loc)
+  in (HdkCommentNamed name (L (mkSrcSpanPs loc) (mkHsDocString rest)), ITdocCommentNamed str loc)
 
 mkHdkCommentSection :: PsSpan -> Int -> String -> (HdkComment, Token)
 mkHdkCommentSection loc n str =
-  (HdkCommentSection n (mkHsDocString str), ITdocSection n str loc)
+  (HdkCommentSection n (L (mkSrcSpanPs loc) (mkHsDocString str)), ITdocSection n str loc)
 
 -- RULES pragmas turn on the forall and '.' keywords, and we turn them
 -- off again at the end of the pragma.
@@ -2335,10 +2336,10 @@ pWarningFlags opts = diag_warning_flags (pDiagOpts opts)
 -- | Haddock comment as produced by the lexer. These are accumulated in
 -- 'PState' and then processed in "GHC.Parser.PostProcess.Haddock".
 data HdkComment
-  = HdkCommentNext HsDocString
-  | HdkCommentPrev HsDocString
-  | HdkCommentNamed String HsDocString
-  | HdkCommentSection Int HsDocString
+  = HdkCommentNext LHsDocString
+  | HdkCommentPrev LHsDocString
+  | HdkCommentNamed String LHsDocString
+  | HdkCommentSection Int LHsDocString
   deriving Show
 
 data PState = PState {

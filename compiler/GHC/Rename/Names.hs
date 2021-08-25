@@ -2115,16 +2115,14 @@ missingImportListWarn :: ModuleName -> SDoc
 missingImportListWarn mod
   = text "The module" <+> quotes (ppr mod) <+> text "does not have an explicit import list"
 
-moduleWarn :: ModuleName -> WarningTxt (HsDoc Name) -> SDoc
-moduleWarn mod w
-  = sep [ text "Module" <+> quotes (ppr mod) <> deprecated <> char ':',
-          nest 2 (vcat (map (text . unpackHDS . hsDocString) txt)) ]
-  where
-    (sort_, txt) = warningTxtContents w
-    deprecated =
-      case sort_ of
-        WsWarning -> empty
-        WsDeprecated -> text " is deprecated"
+moduleWarn :: ModuleName -> WarningTxt GhcRn -> SDoc
+moduleWarn mod (WarningTxt _ txt)
+  = sep [ text "Module" <+> quotes (ppr mod) <> colon,
+          nest 2 (vcat (map (ppr . unWithSourceText . unLoc) txt)) ]
+moduleWarn mod (DeprecatedTxt _ txt)
+  = sep [ text "Module" <+> quotes (ppr mod)
+                                <+> text "is deprecated:",
+          nest 2 (vcat (map (ppr . unWithSourceText . unLoc) txt)) ]
 
 packageImportErr :: TcRnMessage
 packageImportErr

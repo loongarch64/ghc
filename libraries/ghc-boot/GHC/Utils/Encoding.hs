@@ -27,7 +27,6 @@ module GHC.Utils.Encoding (
         utf8UnconsByteString,
         utf8DecodeShortByteString,
         utf8CompareShortByteString,
-        utf8SplitAtByteString,
         utf8DecodeStringLazy,
         utf8EncodeChar,
         utf8EncodeString,
@@ -57,7 +56,6 @@ import GHC.IO
 import GHC.ST
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BS
 import Data.ByteString.Short.Internal (ShortByteString(..))
 
@@ -260,26 +258,6 @@ utf8CompareShortByteString (SBS a1) (SBS a2) = go 0# 0#
                      _   | isTrue# (b1_1 `gtWord#` b2_1) -> GT
                          | isTrue# (b1_1 `ltWord#` b2_1) -> LT
                          | otherwise                     -> go (off1 +# 1#) (off2 +# 1#)
-
--- | Split after a given number of characters.
---
--- Negative values are treated as if they are 0.
-utf8SplitAtByteString :: Int -> ByteString -> (ByteString, ByteString)
-utf8SplitAtByteString n0 bs@(BS.PS fptr off0 len)
-  | n0 <= 0   = (BS.empty, bs)
-  | otherwise =
-      case go n0 start of
-        ptr | ptr >= end -> (bs, BS.empty)
-            | otherwise  ->
-                let d = ptr `minusPtr` start
-                in (BS.PS fptr off0 d, BS.PS fptr (off0 + d) (len - d))
-  where
-    !start = unsafeForeignPtrToPtr fptr `plusPtr` off0
-    !end = start `plusPtr` len
-
-    go n ptr
-      | n > 0 && ptr < end = go (pred n) (ptr `plusPtr` utf8CharSizeAt ptr)
-      | otherwise          = ptr
 
 utf8DecodeShortByteString :: ShortByteString -> [Char]
 utf8DecodeShortByteString (SBS ba#)

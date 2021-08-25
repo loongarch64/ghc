@@ -384,7 +384,6 @@ data GeneralFlag
 
    | Opt_G_NoStateHack
    | Opt_G_NoOptCoercion
-
    deriving (Eq, Show, Enum)
 
 -- Check whether a flag should be considered an "optimisation flag"

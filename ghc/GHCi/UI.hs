@@ -1868,9 +1868,9 @@ docCmd s  = do
 
 data DocComponents =
   DocComponents
-    { docs      :: Maybe (HsDoc Name)   -- ^ subject's haddocks
+    { docs      :: Maybe (HsDoc GhcRn)   -- ^ subject's haddocks
     , sigAndLoc :: Maybe SDoc          -- ^ type signature + category + location
-    , argDocs   :: IntMap (HsDoc Name) -- ^ haddocks for arguments
+    , argDocs   :: IntMap (HsDoc GhcRn) -- ^ haddocks for arguments
     }
 
 buildDocComponents :: GHC.GhcMonad m => String -> Name -> m DocComponents
@@ -1924,7 +1924,7 @@ pprDoc DocComponents{sigAndLoc = mb_sig_loc, docs = mb_decl_docs} =
   where
     formatDoc doc =
       vcat [ fromMaybe empty mb_sig_loc -- print contextual info (#19055)
-           , text $ unpackHDS $ hsDocString doc
+           , vcat $ map (text . unpackHDS) $ hsDocStrings doc
            ]
 
 handleGetDocsFailure :: GHC.GhcMonad m => GetDocsFailure -> m a

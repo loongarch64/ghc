@@ -1066,7 +1066,7 @@ data ConDecl pass
       , con_g_args  :: HsConDeclGADTDetails pass -- ^ Arguments; never infix
       , con_res_ty  :: LHsType pass              -- ^ Result type
 
-      , con_doc     :: Maybe (LHsDoc (IdP pass)) -- ^ A possible Haddock
+      , con_doc     :: Maybe (LHsDoc pass) -- ^ A possible Haddock
                                                  -- comment.
       }
 
@@ -1083,7 +1083,7 @@ data ConDecl pass
       , con_mb_cxt :: Maybe (LHsContext pass)         -- ^ User-written context (if any)
       , con_args   :: HsConDeclH98Details pass        -- ^ Arguments; can be infix
 
-      , con_doc    :: Maybe (LHsDoc (IdP pass)) -- ^ A possible Haddock comment.
+      , con_doc    :: Maybe (LHsDoc pass) -- ^ A possible Haddock comment.
       }
   | XConDecl !(XXConDecl pass)
 
@@ -1711,10 +1711,10 @@ type LDocDecl pass = XRec pass (DocDecl pass)
 
 -- | Documentation comment Declaration
 data DocDecl pass
-  = DocCommentNext (HsDoc (IdP pass))
-  | DocCommentPrev (HsDoc (IdP pass))
-  | DocCommentNamed String (HsDoc (IdP pass))
-  | DocGroup Int (HsDoc (IdP pass))
+  = DocCommentNext (LHsDoc pass)
+  | DocCommentPrev (LHsDoc pass)
+  | DocCommentNamed String (LHsDoc pass)
+  | DocGroup Int (LHsDoc pass)
 
 deriving instance (Data pass, Data (IdP pass)) => Data (DocDecl pass)
 
@@ -1722,7 +1722,7 @@ deriving instance (Data pass, Data (IdP pass)) => Data (DocDecl pass)
 instance Outputable (DocDecl name) where
   ppr _ = text "<document comment>"
 
-docDeclDoc :: DocDecl pass -> HsDoc (IdP pass)
+docDeclDoc :: DocDecl pass -> LHsDoc pass
 docDeclDoc (DocCommentNext d) = d
 docDeclDoc (DocCommentPrev d) = d
 docDeclDoc (DocCommentNamed _ d) = d
@@ -1753,7 +1753,7 @@ data WarnDecls pass = Warnings { wd_ext      :: XWarnings pass
 type LWarnDecl pass = XRec pass (WarnDecl pass)
 
 -- | Warning pragma Declaration
-data WarnDecl pass = Warning (XWarning pass) [LIdP pass] (WarningTxt (HsDoc (IdP pass)))
+data WarnDecl pass = Warning (XWarning pass) [LIdP pass] (WarningTxt pass)
                    | XWarnDecl !(XXWarnDecl pass)
 
 

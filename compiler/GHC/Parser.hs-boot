@@ -1,7 +1,7 @@
 module GHC.Parser where
 
-import GHC.Prelude
-import GHC.Hs.Doc (HsDoc)
 import GHC.Types.Name.Reader (RdrName)
+import GHC.Parser.Lexer (P)
+import GHC.Parser.Annotation (LocatedN)
 
-lexHsDoc' :: String -> HsDoc RdrName
+parseIdentifier :: P (LocatedN RdrName)
