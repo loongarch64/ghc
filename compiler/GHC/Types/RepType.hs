@@ -136,11 +136,13 @@ dataConRuntimeRepStrictness :: HasDebugCallStack => DataCon -> [StrictnessMark]
 -- Assumes the constructor is not levity polymorphic. For example
 -- unboxed tuples won't work.
 dataConRuntimeRepStrictness dc =
+
   -- pprTrace "dataConRuntimeRepStrictness" (ppr dc $$ ppr (dataConRepArgTys dc)) $
 
   let repMarks = dataConRepStrictness dc
       repTys = map irrelevantMult $ dataConRepArgTys dc
-  in go repMarks repTys []
+  in -- todo: assert dc != unboxedTuple/unboxedSum
+     go repMarks repTys []
   where
     go (mark:marks) (ty:types) out_marks
       -- Zero-width argument, mark is irrelevant at runtime.

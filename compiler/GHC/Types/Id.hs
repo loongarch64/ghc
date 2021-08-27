@@ -634,6 +634,8 @@ asJoinId id arity = warnPprTrace (not (isLocalId id))
   where
     is_vanilla_or_join id = case Var.idDetails id of
                               VanillaId -> True
+                              -- Can workers become join ids?
+                              StrictWorkerId {} -> pprTraceDebug "asJoinId (strict worker)" (ppr id) True
                               JoinId {} -> True
                               _         -> False
 

@@ -176,7 +176,12 @@ data IdDetails
                -- This only covers /un-lifted/ coercions, of type
                -- (t1 ~# t2) or (t1 ~R# t2), not their lifted variants
   | JoinId JoinArity           -- ^ An 'Id' for a join point taking n arguments
-       -- Note [Join points] in "GHC.Core"
+        -- Note [Join points] in "GHC.Core"
+  | StrictWorkerId [Bool]
+        -- ^ An 'Id' for a worker function, which expects some arguments to be
+        -- passed both evaluated and tagged. TODO: Reference Note
+
+
 
 -- | Recursive Selector Parent
 data RecSelParent = RecSelData TyCon | RecSelPatSyn PatSyn deriving Eq
@@ -212,6 +217,7 @@ pprIdDetails VanillaId = empty
 pprIdDetails other     = brackets (pp other)
  where
    pp VanillaId               = panic "pprIdDetails"
+   pp (StrictWorkerId dmds)   = text "StrictWorker" <> parens (ppr dmds)
    pp (DataConWorkId _)       = text "DataCon"
    pp (DataConWrapId _)       = text "DataConWrapper"
    pp (ClassOpId {})          = text "ClassOp"
