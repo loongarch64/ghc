@@ -115,6 +115,7 @@ module GHC.Types.Id (
         setIdDmdSig,
         setIdCprSig,
         setIdCbvMarks,
+        idCbvMarks_maybe,
 
         idDemandInfo,
         idDmdSig,
@@ -739,9 +740,15 @@ setIdDemandInfo id dmd = modifyIdInfo (`setDemandInfo` dmd) id
 
 setIdCbvMarks :: Id -> [StrictnessMark] -> Id
 setIdCbvMarks id marks = case idDetails id of
+  -- TODO: Join points?
   VanillaId -> id `setIdDetails` (StrictWorkerId marks)
   _ -> pprTrace "setIdCbvMarks: Unable to set cbv marks for" (ppr id <+> ppr marks) id
 
+idCbvMarks_maybe :: Id -> Maybe [StrictnessMark]
+idCbvMarks_maybe id = case idDetails id of
+  -- TODO: Join points?
+  StrictWorkerId marks -> Just marks
+  _                    -> Nothing
 
 setCaseBndrEvald :: StrictnessMark -> Id -> Id
 -- Used for variables bound by a case expressions, both the case-binder

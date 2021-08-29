@@ -718,6 +718,7 @@ data SrcUnpackedness = SrcUnpack -- ^ {-# UNPACK #-} specified
 -- StrictnessMark is internal only, used to indicate strictness
 -- of the DataCon *worker* fields
 data StrictnessMark = MarkedStrict | NotMarkedStrict
+    deriving Eq
 
 -- | An 'EqSpec' is a tyvar/type pair representing an equality made in
 -- rejigging a GADT constructor

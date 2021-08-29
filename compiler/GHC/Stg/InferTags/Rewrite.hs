@@ -38,6 +38,7 @@ import GHC.Stg.Syntax as StgSyn hiding (AlwaysEnter)
 
 import GHC.Data.Maybe
 import GHC.Utils.Panic
+import GHC.Utils.Panic.Plain
 
 import GHC.Utils.Outputable
 import GHC.Utils.Monad.State.Strict
@@ -261,7 +262,8 @@ rewriteRhs (_id, tagSig) (StgRhsCon ccs con cn ticks args) = {-# SCC rewriteRhs_
             -- So we convert it into a RhsClosure.
             -- which will evaluate the arguments first when applied to an expression.
             -- Turn the rhs into a closure that evaluates the arguments to the strict fields
-            conExpr <- mkSeqs evalArgs con cn args (panic "mkSeqs should not need to provide types")
+            let ty_stub = panic "mkSeqs shouldn't use the type arg"
+            conExpr <- mkSeqs args evalArgs (\taggedArgs -> StgConApp con cn taggedArgs ty_stub)
             return $! (StgRhsClosure noExtFieldSilent ccs Updatable [] $! conExpr)
 rewriteRhs _binding (StgRhsClosure ext ccs flag args body) = do
     -- mapM_ addBinder  args
@@ -326,7 +328,7 @@ rewriteConApp (StgConApp con cn args tys) = do
     if (not $ null evalArgs)
         then do
             -- pprTraceM "Creating conAppSeqs for " $ ppr nodeId <+> parens ( ppr evalArgs ) -- <+> parens ( ppr fieldInfos )
-            mkSeqs evalArgs con cn args tys
+            mkSeqs args evalArgs (\taggedArgs -> StgConApp con cn taggedArgs tys)
         else return $! (StgConApp con cn args tys)
 
 rewriteConApp _ = panic "Impossible"
@@ -337,6 +339,16 @@ rewriteApp True (StgApp _nodeId f args)
         tagInfo <- isTagged f
         let !enter = (extInfo $ tagInfo)
         return $! StgApp enter f args
+    | Just marks <- idCbvMarks_maybe f
+    , assert (length marks == length args) True
+    = do
+        argTags <- mapM isArgTagged args
+        let argInfo = zipWith3 ((,,)) args marks argTags :: [(StgArg, StrictnessMark, Bool)]
+            -- untagged cbv argument positions
+            cbvArgInfo = filter (\x -> sndOf3 x == MarkedStrict && thdOf3 x == False) argInfo
+            cbvArgIds = [x | StgVarArg x <- map fstOf3 cbvArgInfo] :: [Id]
+
+        return $ StgApp MayEnter f args
   where
     extInfo True        = StgSyn.NoEnter
     extInfo False       = StgSyn.MayEnter
@@ -358,8 +370,15 @@ mkSeq id bndr !expr =
     StgCase (StgApp MayEnter id []) bndr altTy [(DEFAULT, [], expr)]
 
 -- Create a ConApp which is guaranteed to evaluate the given ids.
-mkSeqs :: [Id] -> DataCon -> ConstructorNumber -> [StgArg] -> [Type] -> RM TgStgExpr
-mkSeqs untaggedIds con cn args tys = do
+{-# INLINE mkSeqs #-} -- We inline to avoid allocating mkExpr
+mkSeqs  :: [StgArg] -- ^ Original arguments
+        -> [Id]     -- ^ var args to be evaluated ahead of time
+        -> ([StgArg] -> TgStgExpr)
+                    -- ^ Function that reconstructs the expressions when passed
+                    -- the now all evaluated arguments.
+        -> RM TgStgExpr
+-- mkSeqs :: [Id] -> DataCon -> ConstructorNumber -> [StgArg] -> [Type] -> RM TgStgExpr
+mkSeqs args untaggedIds mkExpr = do
     argMap <- mapM (\arg -> (arg,) <$> mkLocalArgId arg ) untaggedIds :: RM [(InId, OutId)]
     -- mapM_ (pprTraceM "Forcing strict args before allocation:" . ppr) argMap
     let taggedArgs :: [StgArg]
@@ -368,7 +387,7 @@ mkSeqs untaggedIds con cn args tys = do
                         lit -> lit)
                     args
 
-    let conBody = StgConApp con cn taggedArgs tys
+    let conBody = mkExpr taggedArgs
     let body = foldr (\(v,bndr) expr -> mkSeq v bndr expr) conBody argMap
     return $! body
 
