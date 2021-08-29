@@ -43,6 +43,7 @@ import GHC.Utils.Panic.Plain
 import GHC.Utils.Outputable
 import GHC.Utils.Monad.State.Strict
 import GHC.Utils.Misc
+import GHC.Utils.Trace
 
 import GHC.Stg.InferTags.Types
 
@@ -340,15 +341,18 @@ rewriteApp True (StgApp _nodeId f args)
         let !enter = (extInfo $ tagInfo)
         return $! StgApp enter f args
     | Just marks <- idCbvMarks_maybe f
+    , pprTrace "marks" (ppr f $$ ppr marks) True
     , assert (length marks == length args) True
     = do
         argTags <- mapM isArgTagged args
         let argInfo = zipWith3 ((,,)) args marks argTags :: [(StgArg, StrictnessMark, Bool)]
             -- untagged cbv argument positions
+
             cbvArgInfo = filter (\x -> sndOf3 x == MarkedStrict && thdOf3 x == False) argInfo
             cbvArgIds = [x | StgVarArg x <- map fstOf3 cbvArgInfo] :: [Id]
-
-        return $ StgApp MayEnter f args
+        pprTraceM "markArgInfo" (ppr f $$ ppr argInfo)
+        mkSeqs args cbvArgIds (\cbv_args -> StgApp MayEnter f cbv_args)
+        -- return $ StgApp MayEnter f args
   where
     extInfo True        = StgSyn.NoEnter
     extInfo False       = StgSyn.MayEnter

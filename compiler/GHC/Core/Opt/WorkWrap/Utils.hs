@@ -226,11 +226,11 @@ mkWwBodies opts fun_id arg_vars res_ty demands res_cpr
               (subst, cloned_arg_vars) = cloneBndrs empty_subst uniq_supply zapped_arg_vars
               res_ty' = GHC.Core.Subst.substTy subst res_ty
               -- TODO:Could set all demanded args to strict here I suppose
-              cbv_marks = replicate (length cloned_arg_vars) NotMarkedStrict
+              init_cbv_marks = replicate (length cloned_arg_vars) NotMarkedStrict
 
         -- TODO
         ; (useful1, work_args, cbv_marks, wrap_fn_str, fn_args)
-             <- mkWWstr opts inlineable_flag cloned_arg_vars cbv_marks
+             <- mkWWstr opts inlineable_flag cloned_arg_vars init_cbv_marks
 
         -- Do CPR w/w.  See Note [Always do CPR w/w]
         ; (useful2, wrap_fn_cpr, work_fn_cpr, cpr_res_ty)
@@ -249,7 +249,9 @@ mkWwBodies opts fun_id arg_vars res_ty demands res_cpr
              && not (too_many_args_for_join_point arg_vars)
              && ((useful1 && not only_one_void_argument) || useful2)
           then  pprTraceM "cbvMarks" (ppr fun_id $$ ppr cbv_marks) >>
-                assert (length cbv_marks == length worker_args_dmds) $
+                assertPpr (length cbv_marks == length worker_args_dmds)
+                          (ppr cbv_marks $$ ppr worker_args_dmds $$
+                           ppr fun_id $$ ppr arg_vars) $
                 return (Just (worker_args_dmds, cbv_marks, length work_call_args,
                        wrapper_body, worker_body))
           else return Nothing
@@ -957,7 +959,9 @@ mkWWstr_one opts inlineable_flag arg marked_cbv =
     fam_envs   = wo_fam_envs opts
     arg_ty     = idType arg
     arg_dmd    = idDemandInfo arg
-    do_nothing = return (False, [arg], [marked_cbv], nop_fn, varToCoreExpr arg)
+    -- Type args don't get cbv marks
+    arg_cbv    = if isTyVar arg then [] else [marked_cbv]
+    do_nothing = return (False, [arg], arg_cbv, nop_fn, varToCoreExpr arg)
 
 unbox_one_arg :: WwOpts
           -> Var

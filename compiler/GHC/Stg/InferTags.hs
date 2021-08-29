@@ -29,6 +29,7 @@ import GHC.Utils.Misc( zipWithEqual, zipEqual )
 import GHC.Stg.InferTags.Types
 import GHC.Driver.Ppr
 
+import Data.Maybe
 {- Note [Tag inference]
 ~~~~~~~~~~~~~~~~~~~~~~~
 The purpose of this pass is to attach to every binder a flag
@@ -249,7 +250,7 @@ inferTagExpr env (StgCase scrut bndr ty alts)
                         bndrs' = addAltBndrInfo env con bndrs ]
         alt_info = foldr combineAltInfo TagTagged infos
     in -- pprTrace "combine alts:" (ppr alt_info $$ ppr infos)
-    ( foldr combineAltInfo TagTagged infos
+    ( alt_info
     , StgCase scrut' bndr' ty alts')
   where
     -- Single unboxed tuple alternative
@@ -284,7 +285,7 @@ inferTagBind top env (StgNonRec bndr rhs)
   where
     id   = getBinderId env bndr
     env' = extendSigEnv env [(id, sig)]
-    (sig,rhs') = inferTagRhs top [id] env rhs
+    (sig,rhs') = inferTagRhs top id env rhs
 
 inferTagBind top env (StgRec pairs)
   = (env { te_env = sig_env }, StgRec pairs')
@@ -304,7 +305,9 @@ inferTagBind top env (StgRec pairs)
        where
          bndrs = ids `zip` sigs
          rhs_env = extendSigEnv env bndrs
-         (sigs', rhss') = unzip (map (inferTagRhs top ids rhs_env) rhss)
+         anaRhs :: Id -> GenStgRhs q -> (TagSig, GenStgRhs 'InferTaggedBinders)
+         anaRhs bnd rhs = inferTagRhs top bnd rhs_env rhs
+         (sigs', rhss') = unzip (zipWithEqual "inferTagBind" anaRhs ids rhss)
          env' = makeTagged env
 
 initSig :: GenStgRhs p -> TagSig
@@ -313,18 +316,25 @@ initSig (StgRhsCon {})                = TagSig 0              TagProper
 initSig (StgRhsClosure _ _ _ bndrs _) = TagSig (length bndrs) TagTagged
 
 -----------------------------
-inferTagRhs :: OutputableInferPass p
+inferTagRhs :: forall p.
+     OutputableInferPass p
   => TopLevelFlag -- ^
-  -> [Id] -- ^ List of ids in the recursive group, or [] otherwise
+  -> Id -- ^ Id we are binding to.
   -> TagEnv p -- ^
   -> GenStgRhs p -- ^
   -> (TagSig, GenStgRhs 'InferTaggedBinders)
-inferTagRhs _top _grp_ids env (StgRhsClosure ext cc upd bndrs body)
+inferTagRhs _top bnd_id env (StgRhsClosure ext cc upd bndrs body)
   = --pprTrace "inferTagRhsClosure" (ppr (_top, _grp_ids, env,info')) $
     (TagSig arity info', StgRhsClosure ext' cc upd bndrs' body')
   where
-    ext' = case te_ext env of ExtEqEv -> ext
-    (info, body') = inferTagExpr env body
+    argSigs
+      | Just marks <- idCbvMarks_maybe bnd_id
+      = catMaybes $ zipWithEqual "inferTagRhs" (mkArgSig) bndrs' marks
+      | otherwise = [] :: [(Id,TagSig)]
+
+    env' = extendSigEnv env argSigs
+    ext' = case te_ext env' of ExtEqEv -> ext
+    (info, body') = inferTagExpr env' body
     arity = length bndrs
     info'
       | arity == 0
@@ -333,9 +343,17 @@ inferTagRhs _top _grp_ids env (StgRhsClosure ext cc upd bndrs body)
       -- as well.
 
       | otherwise  = info
-    bndrs' = map (noSig env) bndrs
+    bndrs' = map (noSig env') bndrs
 
-inferTagRhs _top _grp_ids env rhs@(StgRhsCon cc con cn ticks args)
+    mkArgSig :: (Id,TagSig) -> StrictnessMark -> Maybe (Id,TagSig)
+    mkArgSig   _ NotMarkedStrict = Nothing
+    mkArgSig  (id,_) MarkedStrict
+      | isId id
+      , Just True <- isLiftedType_maybe (idType id)
+      = Just (id, TagSig (idArity id) TagProper)
+      | otherwise = Nothing
+
+inferTagRhs _top _ env rhs@(StgRhsCon cc con cn ticks args)
 -- Top level constructors, which have untagged arguments to strict fields
 -- become thunks. Same goes for rhs which are part of a recursive group.
 -- We encode this by giving changing RhsCon nodes the info TagDunno
