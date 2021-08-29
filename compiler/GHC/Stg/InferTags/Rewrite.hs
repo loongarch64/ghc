@@ -18,8 +18,6 @@
 module GHC.Stg.InferTags.Rewrite (rewriteTopBinds)
 where
 
-#include "HsVersions.h"
-
 import GHC.Prelude
 
 import GHC.Types.Id
@@ -42,7 +40,7 @@ import GHC.Data.Maybe
 import GHC.Utils.Panic
 
 import GHC.Utils.Outputable
-import GHC.Utils.Monad.State
+import GHC.Utils.Monad.State.Strict
 import GHC.Utils.Misc
 
 import GHC.Stg.InferTags.Types

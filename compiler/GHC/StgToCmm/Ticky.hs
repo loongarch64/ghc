@@ -153,6 +153,7 @@ import GHC.Core.Predicate
 import Data.Maybe
 import qualified Data.Char
 import Control.Monad ( when )
+import GHC.Driver.Ppr
 
 -----------------------------------------------------------------------------
 --
@@ -341,7 +342,7 @@ emitTickyCounterTag unique (NonVoid id) =
                    then n <+> parens (ppr mod_name) <+> ext <+> p
                    else n <+> ext <+> p
 
-        ; fun_descr_lit <- newStringCLit $ showSDocDebug dflags ppr_for_ticky_name
+        ; fun_descr_lit <- newStringCLit $ showSDoc dflags ppr_for_ticky_name
         ; arg_descr_lit <- newStringCLit $ "infer"
         ; emitDataLits ctr_lbl
         -- Must match layout of includes/rts/Ticky.h's StgEntCounter

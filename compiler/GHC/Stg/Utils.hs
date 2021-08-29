@@ -12,8 +12,6 @@ module GHC.Stg.Utils
     , seqTopBinds
     ) where
 
-#include "HsVersions.h"
-
 import GHC.Prelude
 
 import GHC.Types.Id
@@ -39,7 +37,7 @@ import GHC.Utils.Panic
 -- findDefaultStg :: [Alt b] -> ([Alt b], Maybe (Expr b))
 findDefaultStg :: [GenStgAlt p] -> ([(AltCon, [BinderP p], GenStgExpr p)],
                        Maybe (GenStgExpr p))
-findDefaultStg ((DEFAULT, args, rhs) : alts) = ASSERT( null args ) (alts, Just rhs)
+findDefaultStg ((DEFAULT, args, rhs) : alts) = assert( null args ) (alts, Just rhs)
 findDefaultStg alts                        =                     (alts, Nothing)
 
 mkStgAltTypeFromStgAlts :: forall p. Id -> [GenStgAlt p] -> AltType
@@ -54,7 +52,7 @@ mkStgAltTypeFromStgAlts bndr alts
           Just tc
             | isAbstractTyCon tc -> look_for_better_tycon
             | isAlgTyCon tc      -> AlgAlt tc
-            | otherwise          -> ASSERT2( _is_poly_alt_tycon tc, ppr tc )
+            | otherwise          -> assertPpr ( _is_poly_alt_tycon tc) (ppr tc)
                                     PolyAlt
           Nothing                -> PolyAlt
       [non_gcd] -> PrimAlt non_gcd
@@ -78,7 +76,7 @@ mkStgAltTypeFromStgAlts bndr alts
         | (((DataAlt con) ,_, _) : _) <- data_alts =
                 AlgAlt (dataConTyCon con)
         | otherwise =
-                ASSERT(null data_alts)
+                assert(null data_alts)
                 PolyAlt
         where
                 (data_alts, _deflt) = findDefaultStg alts

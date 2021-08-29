@@ -155,6 +155,7 @@ initWwOpts dflags fam_envs = MkWwOpts
 
 type WwResult
   = ([Demand],              -- Demands for worker (value) args
+     [StrictnessMark],       -- Cbv marks for worker (value) args
      JoinArity,             -- Number of worker (type OR value) args
      Id -> CoreExpr,        -- Wrapper body, lacking only the worker Id
      CoreExpr -> CoreExpr)  -- Worker body, lacking the original function rhs
@@ -168,7 +169,7 @@ mkWwBodies :: WwOpts
            -> [Var]          -- ^ Manifest args of original function
            -> Type           -- ^ Result type of the original function,
                              --   after being stripped of args
-           -> [Demand]       -- ^ Strictness of original function
+           -> [Demand]       -- ^ Strictness of original function0
            -> Cpr            -- ^ Info about function result
            -> UniqSM (Maybe WwResult)
 -- ^ Given a function definition
@@ -224,9 +225,12 @@ mkWwBodies opts fun_id arg_vars res_ty demands res_cpr
               zapped_arg_vars = map zap_var arg_vars
               (subst, cloned_arg_vars) = cloneBndrs empty_subst uniq_supply zapped_arg_vars
               res_ty' = GHC.Core.Subst.substTy subst res_ty
+              -- TODO:Could set all demanded args to strict here I suppose
+              cbv_marks = replicate (length cloned_arg_vars) NotMarkedStrict
 
-        ; (useful1, work_args, wrap_fn_str, fn_args)
-             <- mkWWstr opts inlineable_flag cloned_arg_vars
+        -- TODO
+        ; (useful1, work_args, cbv_marks, wrap_fn_str, fn_args)
+             <- mkWWstr opts inlineable_flag cloned_arg_vars cbv_marks
 
         -- Do CPR w/w.  See Note [Always do CPR w/w]
         ; (useful2, wrap_fn_cpr, work_fn_cpr, cpr_res_ty)
@@ -244,7 +248,9 @@ mkWwBodies opts fun_id arg_vars res_ty demands res_cpr
         ; if isWorkerSmallEnough (wo_max_worker_args opts) (length demands) work_args
              && not (too_many_args_for_join_point arg_vars)
              && ((useful1 && not only_one_void_argument) || useful2)
-          then return (Just (worker_args_dmds, length work_call_args,
+          then  pprTraceM "cbvMarks" (ppr fun_id $$ ppr cbv_marks) >>
+                assert (length cbv_marks == length worker_args_dmds) $
+                return (Just (worker_args_dmds, cbv_marks, length work_call_args,
                        wrapper_body, worker_body))
           else return Nothing
         }
@@ -894,26 +900,31 @@ mkWWstr :: WwOpts
         -> ArgOfInlineableFun            -- See Note [Do not unpack class dictionaries]
         -> [Var]                         -- Wrapper args; have their demand info on them
                                          --  *Includes type variables*
+        -> [StrictnessMark]              -- cbv info for arguments
         -> UniqSM (Bool,                 -- Is this useful
                    [Var],                -- Worker args
+                   [StrictnessMark],     -- Are the worker args call by value?
                    CoreExpr -> CoreExpr, -- Wrapper body, lacking the worker call
                                          -- and without its lambdas
                                          -- This fn adds the unboxing
                    [CoreExpr])           -- Reboxed args for the call to the
                                          -- original RHS. Corresponds one-to-one
                                          -- with the wrapper arg vars
-mkWWstr opts inlineable_flag args
-  = go args
+mkWWstr opts inlineable_flag args cbv_info
+  = go args cbv_info
   where
-    go_one arg = mkWWstr_one opts inlineable_flag arg
+    go_one arg cbv = mkWWstr_one opts inlineable_flag arg cbv
 
-    go []           = return (False, [], nop_fn, [])
-    go (arg : args) = do { (useful1, args1, wrap_fn1, wrap_arg)  <- go_one arg
-                         ; (useful2, args2, wrap_fn2, wrap_args) <- go args
+    go []           _ = return (False, [], [], nop_fn, [])
+    go (arg : args) (cbv:cbvs)
+      =               do { (useful1, args1, cbv1, wrap_fn1, wrap_arg)  <- go_one arg cbv
+                         ; (useful2, args2, cbv2, wrap_fn2, wrap_args) <- go args cbvs
                          ; return ( useful1 || useful2
                                   , args1 ++ args2
+                                  , cbv1 ++ cbv2
                                   , wrap_fn1 . wrap_fn2
                                   , wrap_arg:wrap_args ) }
+    go _ _ = panic "mkWWstr: Impossible - cbv/arg length missmatch"
 
 ----------------------
 -- mkWWstr_one wrap_var = (useful, work_args, wrap_fn, wrap_arg)
@@ -925,8 +936,9 @@ mkWWstr opts inlineable_flag args
 mkWWstr_one :: WwOpts
             -> ArgOfInlineableFun -- See Note [Do not unpack class dictionaries]
             -> Var
-            -> UniqSM (Bool, [Var], CoreExpr -> CoreExpr, CoreExpr)
-mkWWstr_one opts inlineable_flag arg =
+            -> StrictnessMark
+            -> UniqSM (Bool, [Var], [StrictnessMark], CoreExpr -> CoreExpr, CoreExpr)
+mkWWstr_one opts inlineable_flag arg marked_cbv =
   case wantToUnboxArg fam_envs inlineable_flag arg_ty arg_dmd of
     _ | isTyVar arg -> do_nothing
 
@@ -935,9 +947,9 @@ mkWWstr_one opts inlineable_flag arg =
          -- Absent case.  We can't always handle absence for arbitrary
          -- unlifted types, so we need to choose just the cases we can
          -- (that's what mkAbsentFiller does)
-      -> return (True, [], nop_fn, absent_filler)
+      -> return (True, [], [], nop_fn, absent_filler)
 
-    Unbox dcpc cs -> unbox_one_arg opts arg cs dcpc
+    Unbox dcpc cs -> unbox_one_arg opts arg cs dcpc marked_cbv
 
     _ -> do_nothing -- Other cases, like StopUnboxing
 
@@ -945,16 +957,18 @@ mkWWstr_one opts inlineable_flag arg =
     fam_envs   = wo_fam_envs opts
     arg_ty     = idType arg
     arg_dmd    = idDemandInfo arg
-    do_nothing = return (False, [arg], nop_fn, varToCoreExpr arg)
+    do_nothing = return (False, [arg], [marked_cbv], nop_fn, varToCoreExpr arg)
 
 unbox_one_arg :: WwOpts
           -> Var
           -> [Demand]
           -> DataConPatContext
-          -> UniqSM (Bool, [Var], CoreExpr -> CoreExpr, CoreExpr)
+          -> StrictnessMark
+          -> UniqSM (Bool, [Var], [StrictnessMark], CoreExpr -> CoreExpr, CoreExpr)
 unbox_one_arg opts arg_var cs
           DataConPatContext { dcpc_dc = dc, dcpc_tc_args = tc_args
                             , dcpc_co = co }
+          marked_cbv
   = do { pat_bndrs_uniqs <- getUniquesM
        ; let ex_name_fss = map getOccFS $ dataConExTyCoVars dc
              (ex_tvs', arg_ids) =
@@ -962,9 +976,13 @@ unbox_one_arg opts arg_var cs
              arg_ids' = zipWithEqual "unbox_one_arg" setIdDemandInfo arg_ids cs
              unbox_fn = mkUnpackCase (Var arg_var) co (idMult arg_var)
                                      dc (ex_tvs' ++ arg_ids')
-       ; (_, worker_args, wrap_fn, wrap_args) <- mkWWstr opts NotArgOfInlineableFun (ex_tvs' ++ arg_ids')
+             -- TODO: Does dataConRepStrictness
+             cbv_arg_marks = dataConRepStrictness dc
+             cbv_marks = assert (length arg_ids == length cbv_arg_marks) $
+                         (replicate (length ex_tvs') NotMarkedStrict) ++ cbv_arg_marks
+       ; (_, worker_args, cbv_marks, wrap_fn, wrap_args) <- mkWWstr opts NotArgOfInlineableFun (ex_tvs' ++ arg_ids') cbv_marks
        ; let wrap_arg = mkConApp dc (map Type tc_args ++ wrap_args) `mkCast` mkSymCo co
-       ; return (True, worker_args, unbox_fn . wrap_fn, wrap_arg) }
+       ; return (True, worker_args, cbv_marks, unbox_fn . wrap_fn, wrap_arg) }
                           -- Don't pass the arg, rebox instead
 
 -- | Tries to find a suitable absent filler to bind the given absent identifier

@@ -50,7 +50,7 @@ import GHC.Unit.Module
 import GHC.Builtin.Types ( unboxedUnitDataCon )
 import GHC.Data.FastString
 import GHC.Platform.Ways
-import GHC.Builtin.PrimOps ( PrimCall(..), primOpWrapperId )
+import GHC.Builtin.PrimOps ( PrimCall(..) )
 
 import GHC.Utils.Outputable
 import GHC.Utils.Monad

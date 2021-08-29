@@ -914,6 +914,16 @@ instance Outputable StrictnessMark where
     ppr MarkedStrict    = text "!"
     ppr NotMarkedStrict = empty
 
+instance Binary StrictnessMark where
+    put_ bh NotMarkedStrict = putByte bh 0
+    put_ bh MarkedStrict    = putByte bh 1
+    get bh =
+      do h <- getByte bh
+         case h of
+           0 -> return NotMarkedStrict
+           1 -> return MarkedStrict
+           _ -> panic "Invalid binary format"
+
 instance Binary SrcStrictness where
     put_ bh SrcLazy     = putByte bh 0
     put_ bh SrcStrict   = putByte bh 1

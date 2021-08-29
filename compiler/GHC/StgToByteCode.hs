@@ -505,7 +505,7 @@ returnUnboxedTuple d s p es = do
 schemeE
     :: StackDepth -> Sequel -> BCEnv -> CgStgExpr -> BcM BCInstrList
 schemeE d s p (StgLit lit) = returnUnliftedAtom d s p (StgLitArg lit)
-schemeE d s p (StgApp x [])
+schemeE d s p (StgApp _ext x [])
    | isUnliftedType (idType x) = returnUnliftedAtom d s p (StgVarArg x)
 -- Delegate tail-calls to schemeT.
 schemeE d s p e@(StgApp {}) = schemeT d s p e

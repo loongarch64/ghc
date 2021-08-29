@@ -549,10 +549,10 @@ getCallMethod opts name id (LFReEntrant _ arity _ _) n_args _v_args _cg_loc
   | n_args < arity = SlowCall        -- Not enough args
   | otherwise      = DirectEntry (enterIdLabel (profilePlatform (co_profile opts)) name (idCafInfo id)) arity
 
-getCallMethod _ _name _ LFUnlifted n_args _v_args _cg_loc _self_loop_info
+getCallMethod _ _name _ LFUnlifted n_args _v_args _cg_loc _self_loop_info _appEnterInfo
   = assert (n_args == 0) ReturnIt
 
-getCallMethod _ _name _ (LFCon _) n_args _v_args _cg_loc _self_loop_info
+getCallMethod _ _name _ (LFCon _) n_args _v_args _cg_loc _self_loop_info _appEnterInfo
   = assert (n_args == 0) ReturnIt
     -- n_args=0 because it'd be ill-typed to apply a saturated
     --          constructor application to anything
@@ -607,10 +607,11 @@ getCallMethod opts name _ (LFUnknown might_be_a_function) n_args _v_args _cg_loc
   | might_be_a_function = SlowCall
 
   | otherwise =
-      ASSERT2( n_args == 0, ppr name <+> ppr n_args )
+      assertPpr ( n_args == 0) ( ppr name <+> ppr n_args )
       EnterIt   -- Not a function
 
-getCallMethod _ name _ (LFUnknown False) n_args _v_args _cg_loc _self_loop_info
+-- TODO: Redundant with above match?
+getCallMethod _ name _ (LFUnknown False) n_args _v_args _cg_loc _self_loop_info _appEnterInfo
   = assertPpr (n_args == 0) (ppr name <+> ppr n_args)
     EnterIt -- Not a function
 

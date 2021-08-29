@@ -9,9 +9,6 @@ module GHC.Stg.InferTags.Types
 
 where
 
-#include "HsVersions.h"
-
-
 import GHC.Prelude
 
 import GHC.Core.DataCon

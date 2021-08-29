@@ -243,8 +243,6 @@ import GHC.Stg.InferTags.Rewrite
 import GHC.Types.Unique.Supply
 -- import GHC.Driver.Ppr
 
-#include "HsVersions.h"
-
 {- **********************************************************************
 %*                                                                      *
                 Initialisation
@@ -1753,12 +1751,12 @@ doCodeGen hsc_env this_mod denv data_tycons
     let tmpfs  = hsc_tmpfs hsc_env
     let platform = targetPlatform dflags
 
-    dumpIfSet_dyn logger dflags Opt_D_dump_stg_final "CodeGenInput STG:" FormatSTG (pprGenStgTopBindings (initStgPprOpts dflags) stg_binds)
+    putDumpFileMaybe logger Opt_D_dump_stg_final "CodeGenInput STG:" FormatSTG (pprGenStgTopBindings (initStgPprOpts dflags) stg_binds)
 
     -- Annotate binders with tag information.
     let (!stg_binds_w_tags) = {-# SCC "StgTagFields" #-}
                                         inferTags stg_binds
-    dumpIfSet_dyn logger dflags Opt_D_dump_stg_tags "CodeGenAnal STG:" FormatSTG (pprGenStgTopBindings (initStgPprOpts dflags) stg_binds_w_tags)
+    putDumpFileMaybe logger Opt_D_dump_stg_tags "CodeGenAnal STG:" FormatSTG (pprGenStgTopBindings (initStgPprOpts dflags) stg_binds_w_tags)
 
     -- Rewrite STG to uphold the strict field invariant
     us_t <- mkSplitUniqSupply 't'

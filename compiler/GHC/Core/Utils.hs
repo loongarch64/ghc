@@ -67,8 +67,8 @@ module GHC.Core.Utils (
 import GHC.Prelude
 import GHC.Platform
 
-import GHC.Driver.Session (DynFlags, hasPprDebug)
-import GHC.Driver.Ppr
+-- import GHC.Driver.Session (DynFlags, hasPprDebug)
+-- import GHC.Driver.Ppr
 
 import GHC.Core
 import GHC.Core.Ppr
@@ -2675,15 +2675,15 @@ isJoinBind (NonRec b _)       = isJoinId b
 isJoinBind (Rec ((b, _) : _)) = isJoinId b
 isJoinBind _                  = False
 
-dumpIdInfoOfProgram :: DynFlags -> (IdInfo -> SDoc) -> CoreProgram -> SDoc
-dumpIdInfoOfProgram dflags ppr_id_info binds = vcat (map printId ids)
+dumpIdInfoOfProgram :: Bool -> (IdInfo -> SDoc) -> CoreProgram -> SDoc
+dumpIdInfoOfProgram dump_locals ppr_id_info binds = vcat (map printId ids)
   where
   ids = sortBy (stableNameCmp `on` getName) (concatMap getIds binds)
   getIds (NonRec i _) = [ i ]
   getIds (Rec bs)     = map fst bs
   -- By default only include full info for exported ids, unless we run in the verbose
   -- pprDebug mode.
-  printId id | isExportedId id || hasPprDebug dflags = ppr id <> colon <+> (ppr_id_info (idInfo id))
+  printId id | isExportedId id || dump_locals = ppr id <> colon <+> (ppr_id_info (idInfo id))
              | otherwise       = empty
 
 

@@ -177,7 +177,7 @@ data IdDetails
                -- (t1 ~# t2) or (t1 ~R# t2), not their lifted variants
   | JoinId JoinArity           -- ^ An 'Id' for a join point taking n arguments
         -- Note [Join points] in "GHC.Core"
-  | StrictWorkerId [Bool]
+  | StrictWorkerId [StrictnessMark]
         -- ^ An 'Id' for a worker function, which expects some arguments to be
         -- passed both evaluated and tagged. TODO: Reference Note
 
@@ -208,6 +208,12 @@ isCoVarDetails _       = False
 isJoinIdDetails_maybe :: IdDetails -> Maybe JoinArity
 isJoinIdDetails_maybe (JoinId join_arity) = Just join_arity
 isJoinIdDetails_maybe _                   = Nothing
+
+hasCbvMarks_maybe :: IdDetails -> Maybe [StrictnessMark]
+hasCbvMarks_maybe details =
+  case details of
+    StrictWorkerId marks -> Just marks
+    _ -> Nothing
 
 instance Outputable IdDetails where
     ppr = pprIdDetails

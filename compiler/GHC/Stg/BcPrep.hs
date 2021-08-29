@@ -60,7 +60,7 @@ bcPrepExpr (StgTick bp@(Breakpoint tick_ty _ _) rhs)
                                             []
                                             expr'
                              )
-          letExp = StgLet noExtFieldSilent bnd (StgApp id [])
+          letExp = StgLet noExtFieldSilent bnd (StgApp noEnterInfo id [])
       pure letExp
   | otherwise = do
       id <- newId (mkVisFunTyMany realWorldStatePrimTy tick_ty)
@@ -72,7 +72,7 @@ bcPrepExpr (StgTick bp@(Breakpoint tick_ty _ _) rhs)
                                             [voidArgId]
                                             expr'
                              )
-      pure $ StgLet noExtFieldSilent bnd (StgApp id [StgVarArg realWorldPrimId])
+      pure $ StgLet noExtFieldSilent bnd (StgApp noEnterInfo id [StgVarArg realWorldPrimId])
 bcPrepExpr (StgTick tick rhs) =
   StgTick tick <$> bcPrepExpr rhs
 bcPrepExpr (StgLet xlet bnds expr) =
@@ -88,9 +88,9 @@ bcPrepExpr (StgCase expr bndr alt_type alts) =
           <*> mapM bcPrepAlt alts
 bcPrepExpr lit@StgLit{} = pure lit
 -- See Note [Not-necessarily-lifted join points], step 3.
-bcPrepExpr (StgApp x [])
+bcPrepExpr (StgApp ext x [])
   | isNNLJoinPoint x = pure $
-      StgApp (protectNNLJoinPointId x) [StgVarArg voidPrimId]
+      StgApp ext (protectNNLJoinPointId x) [StgVarArg voidPrimId]
 bcPrepExpr app@StgApp{} = pure app
 bcPrepExpr app@StgConApp{} = pure app
 bcPrepExpr app@StgOpApp{} = pure app
