@@ -341,7 +341,7 @@ rewriteApp True (StgApp _nodeId f args)
         let !enter = (extInfo $ tagInfo)
         return $! StgApp enter f args
     | Just marks <- idCbvMarks_maybe f
-    , pprTrace "marks" (ppr f $$ ppr marks) True
+    -- , pprTrace "marks" (ppr f $$ ppr marks) True
     , assert (length marks == length args) True
     = do
         argTags <- mapM isArgTagged args
@@ -350,7 +350,7 @@ rewriteApp True (StgApp _nodeId f args)
 
             cbvArgInfo = filter (\x -> sndOf3 x == MarkedStrict && thdOf3 x == False) argInfo
             cbvArgIds = [x | StgVarArg x <- map fstOf3 cbvArgInfo] :: [Id]
-        pprTraceM "markArgInfo" (ppr f $$ ppr argInfo)
+        -- pprTraceM "markArgInfo" (ppr f $$ ppr argInfo)
         mkSeqs args cbvArgIds (\cbv_args -> StgApp MayEnter f cbv_args)
         -- return $ StgApp MayEnter f args
   where

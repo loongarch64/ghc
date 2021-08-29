@@ -248,8 +248,7 @@ mkWwBodies opts fun_id arg_vars res_ty demands res_cpr
         ; if isWorkerSmallEnough (wo_max_worker_args opts) (length demands) work_args
              && not (too_many_args_for_join_point arg_vars)
              && ((useful1 && not only_one_void_argument) || useful2)
-          then  pprTraceM "cbvMarks" (ppr fun_id $$ ppr work_call_cbv) >>
-                assertPpr (length work_call_cbv == length worker_args_dmds)
+          then  assertPpr (length work_call_cbv == length worker_args_dmds)
                           (text "cbv" <+> ppr work_call_cbv <> parens (int $ length work_call_cbv) $$
                            text "wrk-dmds" <+> ppr worker_args_dmds $$
                            text "fnd-args" <+> ppr fun_id <+> ppr arg_vars $$
@@ -398,8 +397,7 @@ mkWorkerArgs wrap_id fun_to_thunk args cbv_marks res_ty
     | not (isJoinId wrap_id) -- Join Ids never need an extra arg
     , not (any isId args)    -- No existing value lambdas
     , needs_a_value_lambda   -- and we need to add one
-    = pprTrace "addDummyArg" (ppr wrap_id)
-      (args ++ [voidArgId], args ++ [voidPrimId], [NotMarkedStrict])
+    = (args ++ [voidArgId], args ++ [voidPrimId], [NotMarkedStrict])
 
     | otherwise
     = (args, args, cbv_marks)
