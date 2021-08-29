@@ -1732,8 +1732,9 @@ spec_one env fn arg_bndrs body (call_pat, rule_number)
                   -- Annotate the variables with the strictness information from
                   -- the function (see Note [Strictness information in worker binders])
 
-              (spec_lam_args, spec_call_args) = mkWorkerArgs fn False
-                                                    spec_lam_args1 spec_body_ty
+              (spec_lam_args, spec_call_args,_) = mkWorkerArgs fn False
+                                                    spec_lam_args1 [] -- We don't care about cbv annotations here
+                                                    spec_body_ty
                 -- mkWorkerArgs: usual w/w hack to avoid generating
                 -- a spec_rhs of unlifted type and no args
 

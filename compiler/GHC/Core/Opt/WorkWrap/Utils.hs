@@ -229,15 +229,15 @@ mkWwBodies opts fun_id arg_vars res_ty demands res_cpr
               init_cbv_marks = replicate (length cloned_arg_vars) NotMarkedStrict
 
         -- TODO
-        ; (useful1, work_args, cbv_marks, wrap_fn_str, fn_args)
+        ; (useful1, work_args, work_marks, wrap_fn_str, fn_args)
              <- mkWWstr opts inlineable_flag cloned_arg_vars init_cbv_marks
 
         -- Do CPR w/w.  See Note [Always do CPR w/w]
         ; (useful2, wrap_fn_cpr, work_fn_cpr, cpr_res_ty)
               <- mkWWcpr_entry opts res_ty' res_cpr
 
-        ; let (work_lam_args, work_call_args) = mkWorkerArgs fun_id (wo_fun_to_thunk opts)
-                                                             work_args cpr_res_ty
+        ; let (work_lam_args, work_call_args, work_call_cbv) = mkWorkerArgs fun_id (wo_fun_to_thunk opts)
+                                                                 work_args work_marks cpr_res_ty
               call_work work_fn  = mkVarApps (Var work_fn) work_call_args
               call_rhs fn_rhs = mkAppsBeta fn_rhs fn_args
                                   -- See Note [Join points and beta-redexes]
@@ -248,11 +248,13 @@ mkWwBodies opts fun_id arg_vars res_ty demands res_cpr
         ; if isWorkerSmallEnough (wo_max_worker_args opts) (length demands) work_args
              && not (too_many_args_for_join_point arg_vars)
              && ((useful1 && not only_one_void_argument) || useful2)
-          then  pprTraceM "cbvMarks" (ppr fun_id $$ ppr cbv_marks) >>
-                assertPpr (length cbv_marks == length worker_args_dmds)
-                          (ppr cbv_marks $$ ppr worker_args_dmds $$
-                           ppr fun_id $$ ppr arg_vars) $
-                return (Just (worker_args_dmds, cbv_marks, length work_call_args,
+          then  pprTraceM "cbvMarks" (ppr fun_id $$ ppr work_call_cbv) >>
+                assertPpr (length work_call_cbv == length worker_args_dmds)
+                          (text "cbv" <+> ppr work_call_cbv <> parens (int $ length work_call_cbv) $$
+                           text "wrk-dmds" <+> ppr worker_args_dmds $$
+                           text "fnd-args" <+> ppr fun_id <+> ppr arg_vars $$
+                           text "wrk-args" <+> ppr work_args) $
+                return (Just (worker_args_dmds, work_call_cbv, length work_call_args,
                        wrapper_body, worker_body))
           else return Nothing
         }
@@ -386,17 +388,21 @@ We use the state-token type which generates no code.
 mkWorkerArgs :: Id      -- The wrapper Id
              -> Bool
              -> [Var]
+             -> [StrictnessMark]
              -> Type    -- Type of body
              -> ([Var], -- Lambda bound args
-                 [Var]) -- Args at call site
-mkWorkerArgs wrap_id fun_to_thunk args res_ty
+                 [Var],
+                 [StrictnessMark]
+                 ) -- Args at call site
+mkWorkerArgs wrap_id fun_to_thunk args cbv_marks res_ty
     | not (isJoinId wrap_id) -- Join Ids never need an extra arg
     , not (any isId args)    -- No existing value lambdas
     , needs_a_value_lambda   -- and we need to add one
-    = (args ++ [voidArgId], args ++ [voidPrimId])
+    = pprTrace "addDummyArg" (ppr wrap_id)
+      (args ++ [voidArgId], args ++ [voidPrimId], [NotMarkedStrict])
 
     | otherwise
-    = (args, args)
+    = (args, args, cbv_marks)
     where
       -- If fun_to_thunk is False we always keep at least one value
       --   argument: see Note [Protecting the last value argument]
@@ -912,8 +918,8 @@ mkWWstr :: WwOpts
                    [CoreExpr])           -- Reboxed args for the call to the
                                          -- original RHS. Corresponds one-to-one
                                          -- with the wrapper arg vars
-mkWWstr opts inlineable_flag args cbv_info
-  = go args cbv_info
+mkWWstr opts inlineable_flag args cbv_infos
+  = go args cbv_infos
   where
     go_one arg cbv = mkWWstr_one opts inlineable_flag arg cbv
 
@@ -946,7 +952,8 @@ mkWWstr_one opts inlineable_flag arg marked_cbv =
 
     DropAbsent
       | Just absent_filler <- mkAbsentFiller opts arg
-         -- Absent case.  We can't always handle absence for arbitrary
+         -- Absent case.  Dropt the argument from the worker.
+         -- We can't always handle absence for arbitrary
          -- unlifted types, so we need to choose just the cases we can
          -- (that's what mkAbsentFiller does)
       -> return (True, [], [], nop_fn, absent_filler)
@@ -980,12 +987,16 @@ unbox_one_arg opts arg_var cs
              arg_ids' = zipWithEqual "unbox_one_arg" setIdDemandInfo arg_ids cs
              unbox_fn = mkUnpackCase (Var arg_var) co (idMult arg_var)
                                      dc (ex_tvs' ++ arg_ids')
-             -- TODO: Does dataConRepStrictness
+             -- TODO: Does dataConRepStrictness properly deal with unboxing/existentials?
              cbv_arg_marks = dataConRepStrictness dc
-             cbv_marks = assert (length arg_ids == length cbv_arg_marks) $
+             cbv_marks = assertPpr (length arg_ids == length cbv_arg_marks)
+                            (ppr dc) $
                          (replicate (length ex_tvs') NotMarkedStrict) ++ cbv_arg_marks
        ; (_, worker_args, cbv_marks, wrap_fn, wrap_args) <- mkWWstr opts NotArgOfInlineableFun (ex_tvs' ++ arg_ids') cbv_marks
        ; let wrap_arg = mkConApp dc (map Type tc_args ++ wrap_args) `mkCast` mkSymCo co
+       ; assertPpr (length worker_args == length cbv_marks) ( ppr arg_var
+
+              ) $ return ()
        ; return (True, worker_args, cbv_marks, unbox_fn . wrap_fn, wrap_arg) }
                           -- Don't pass the arg, rebox instead
 

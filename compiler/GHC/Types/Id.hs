@@ -544,11 +544,12 @@ isJoinId id
                 _         -> False
   | otherwise = False
 
+-- | Doesn't return strictness marks
 isJoinId_maybe :: Var -> Maybe JoinArity
 isJoinId_maybe id
  | isId id  = assertPpr (isId id) (ppr id) $
               case Var.idDetails id of
-                JoinId arity -> Just arity
+                JoinId arity _marks -> Just arity
                 _            -> Nothing
  | otherwise = Nothing
 
@@ -633,7 +634,7 @@ asJoinId id arity = warnPprTrace (not (isLocalId id))
                          (text "global id being marked as join var:" <+> ppr id) $
                     warnPprTrace (not (is_vanilla_or_join id))
                          (ppr id <+> pprIdDetails (idDetails id)) $
-                    id `setIdDetails` JoinId arity
+                    id `setIdDetails` JoinId arity (idCbvMarks_maybe id)
   where
     is_vanilla_or_join id = case Var.idDetails id of
                               VanillaId -> True
@@ -748,6 +749,7 @@ idCbvMarks_maybe :: Id -> Maybe [StrictnessMark]
 idCbvMarks_maybe id = case idDetails id of
   -- TODO: Join points?
   StrictWorkerId marks -> Just marks
+  JoinId _arity marks  -> marks
   _                    -> Nothing
 
 setCaseBndrEvald :: StrictnessMark -> Id -> Id

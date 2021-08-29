@@ -648,8 +648,12 @@ lintLetBind top_lvl rec_flag binder rhs rhs_ty
          -- NB: lintIdBinder has checked that it is not top-level bound
        ; case isJoinId_maybe binder of
             Nothing    -> return ()
-            Just arity ->  checkL (isValidJoinPointType arity binder_ty)
-                                  (mkInvalidJoinPointMsg binder binder_ty)
+            Just arity -> do
+                checkL (isValidJoinPointType arity binder_ty)
+                    (mkInvalidJoinPointMsg binder binder_ty)
+                checkL (checkValidCbvAnnotation binder)
+                    (mkInvalidCbvMsg binder)
+
 
        ; when (lf_check_inline_loop_breakers flags
                && isStableUnfolding (realIdUnfolding binder)
@@ -688,6 +692,21 @@ lintLetBind top_lvl rec_flag binder rhs rhs_ty
 
         -- We should check the unfolding, if any, but this is tricky because
         -- the unfolding is a SimplifiableCoreExpr. Give up for now.
+
+
+-- Maybe should live elsewhere
+checkValidCbvAnnotation :: Id -> Bool
+checkValidCbvAnnotation id
+  | Just arity <- isJoinId_maybe id
+  , Just marks <- idCbvMarks_maybe id
+  = length marks == arity
+  -- TODO: Maybe check arity for regular workers too?
+  | otherwise = False
+
+mkInvalidCbvMsg :: Id -> SDoc
+mkInvalidCbvMsg id =
+  hang (text "Found a invalid cbv annotation (arity missmatch)")
+       2 (vcat [ text "id:" <+> ppr id])
 
 -- | Checks the RHS of bindings. It only differs from 'lintCoreExpr'
 -- in that it doesn't reject occurrences of the function 'makeStatic' when they

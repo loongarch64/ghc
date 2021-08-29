@@ -175,7 +175,8 @@ data IdDetails
   | CoVarId    -- ^ A coercion variable
                -- This only covers /un-lifted/ coercions, of type
                -- (t1 ~# t2) or (t1 ~R# t2), not their lifted variants
-  | JoinId JoinArity           -- ^ An 'Id' for a join point taking n arguments
+  | JoinId JoinArity (Maybe [StrictnessMark])
+        -- ^ An 'Id' for a join point taking n arguments
         -- Note [Join points] in "GHC.Core"
   | StrictWorkerId [StrictnessMark]
         -- ^ An 'Id' for a worker function, which expects some arguments to be
@@ -205,15 +206,9 @@ isCoVarDetails :: IdDetails -> Bool
 isCoVarDetails CoVarId = True
 isCoVarDetails _       = False
 
-isJoinIdDetails_maybe :: IdDetails -> Maybe JoinArity
-isJoinIdDetails_maybe (JoinId join_arity) = Just join_arity
+isJoinIdDetails_maybe :: IdDetails -> Maybe (JoinArity, (Maybe [StrictnessMark]))
+isJoinIdDetails_maybe (JoinId join_arity marks) = Just (join_arity, marks)
 isJoinIdDetails_maybe _                   = Nothing
-
-hasCbvMarks_maybe :: IdDetails -> Maybe [StrictnessMark]
-hasCbvMarks_maybe details =
-  case details of
-    StrictWorkerId marks -> Just marks
-    _ -> Nothing
 
 instance Outputable IdDetails where
     ppr = pprIdDetails
@@ -235,7 +230,7 @@ pprIdDetails other     = brackets (pp other)
                               = brackets $ text "RecSel" <>
                                            ppWhen is_naughty (text "(naughty)")
    pp CoVarId                 = text "CoVarId"
-   pp (JoinId arity)          = text "JoinId" <> parens (int arity)
+   pp (JoinId arity marks)          = text "JoinId" <> parens (int arity) <> parens (ppr marks)
 
 {-
 ************************************************************************
