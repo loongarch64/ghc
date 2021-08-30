@@ -12,6 +12,7 @@ where
 import GHC.Prelude
 
 import GHC.Core.DataCon
+import GHC.Core.Type (isUnliftedType)
 import GHC.Types.Id
 import GHC.Stg.Syntax
 import GHC.Types.Basic ( Arity )
@@ -108,7 +109,11 @@ instance Outputable TagSig where
   ppr (TagSig ar ti) = char '<' <> ppr ar <> comma <> ppr ti <> char '>'
 
 noSig :: TagEnv p -> BinderP p -> (Id, TagSig)
-noSig env bndr = (getBinderId env bndr, TagSig 0 TagDunno)
+noSig env bndr
+  | isUnliftedType (idType var) = (var, TagSig (idArity var) TagProper)
+  | otherwise = (var, TagSig 0 TagDunno)
+  where
+    var = getBinderId env bndr
 
 lookupSig :: TagEnv p -> Id -> Maybe TagSig
 lookupSig env fun = lookupVarEnv (te_env env) fun
@@ -118,6 +123,9 @@ lookupInfo env (StgVarArg var)
   -- Nullary data constructors like True, False
   | Just dc <- isDataConWorkId_maybe var
   , isNullaryRepDataCon dc
+  = TagProper
+
+  | isUnliftedType (idType var)
   = TagProper
 
   -- Variables in the environment

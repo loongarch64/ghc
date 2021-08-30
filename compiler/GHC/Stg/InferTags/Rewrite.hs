@@ -265,7 +265,7 @@ rewriteRhs (_id, tagSig) (StgRhsCon ccs con cn ticks args) = {-# SCC rewriteRhs_
             -- Turn the rhs into a closure that evaluates the arguments to the strict fields
             let ty_stub = panic "mkSeqs shouldn't use the type arg"
             conExpr <- mkSeqs args evalArgs (\taggedArgs -> StgConApp con cn taggedArgs ty_stub)
-            return $! (StgRhsClosure noExtFieldSilent ccs Updatable [] $! conExpr)
+            return $! (StgRhsClosure noExtFieldSilent ccs ReEntrant [] $! conExpr)
 rewriteRhs _binding (StgRhsClosure ext ccs flag args body) = do
     -- mapM_ addBinder  args
     withBinders args $ do

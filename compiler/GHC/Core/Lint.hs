@@ -697,16 +697,22 @@ lintLetBind top_lvl rec_flag binder rhs rhs_ty
 -- Maybe should live elsewhere
 checkValidCbvAnnotation :: Id -> Bool
 checkValidCbvAnnotation id
-  | Just arity <- isJoinId_maybe id
-  , Just marks <- idCbvMarks_maybe id
-  = length marks == arity
+  -- Join point arity includes types making this check useless.
+  -- | Just arity <- isJoinId_maybe id
+  -- , Just marks <- idCbvMarks_maybe id
+  -- = length marks == arity
+  | Just marks <- idCbvMarks_maybe id
+  , arity <- idArity id
+  = arity == length marks
   -- TODO: Maybe check arity for regular workers too?
-  | otherwise = False
+  | otherwise = True
 
 mkInvalidCbvMsg :: Id -> SDoc
 mkInvalidCbvMsg id =
   hang (text "Found a invalid cbv annotation (arity missmatch)")
-       2 (vcat [ text "id:" <+> ppr id])
+       2 (vcat [ text "id:" <+> ppr id
+               , text "marks:" <+> ppr (idCbvMarks_maybe id)
+               , text "arity(s)" <+> ppr (isJoinId_maybe id) <+> ppr (idArity id)])
 
 -- | Checks the RHS of bindings. It only differs from 'lintCoreExpr'
 -- in that it doesn't reject occurrences of the function 'makeStatic' when they

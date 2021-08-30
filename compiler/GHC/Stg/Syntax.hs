@@ -897,6 +897,7 @@ pprStgRhs opts rhs = case rhs of
               , case mid of
                   NoNumber -> empty
                   Numbered n -> hcat [ppr n, space]
+              -- I suppose the bang indicates this is an RHS instead of an conApp
               , ppr con, text "! ", brackets (sep (map pprStgArg args))]
 
 instance OutputablePass pass => Outputable  (GenStgRhs pass) where
