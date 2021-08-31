@@ -341,8 +341,10 @@ inferTagRhs _top bnd_id in_env (StgRhsClosure ext cc upd bndrs body)
   where
     out_bndrs
       | Just marks <- idCbvMarks_maybe bnd_id
-      = assert (length out_bndrs == length bndrs) $
-        zipWithEqual "inferTagRhs" (mkArgSig) bndrs marks
+      -- Sometimes an we eta-expand foo with additional arguments after ww, we can conservatively
+      -- assume these are not strict
+      -- = zipWithEqual "inferTagRhs" (mkArgSig) bndrs (marks ++ repeat NotMarkedStrict)
+      = zipWith (mkArgSig) bndrs (marks ++ repeat NotMarkedStrict)
       | otherwise = map (noSig env') bndrs :: [(Id,TagSig)]
 
     env' = extendSigEnv in_env out_bndrs

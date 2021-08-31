@@ -68,6 +68,7 @@ import GHC.Core.TyCon
 import GHC.Runtime.Heap.Layout
 import GHC.Unit
 import GHC.Types.Literal
+import GHC.Types.Id
 import GHC.Data.Graph.Directed
 import GHC.Utils.Misc
 import GHC.Types.Unique
@@ -302,8 +303,6 @@ newUnboxedTupleRegs res_ty
     reps = typePrimRep res_ty
     choose_regs _ (AssignTo regs _) = return regs
     choose_regs platform _          = mapM (newTemp . primRepCmmType platform) reps
-
-
 
 -------------------------------------------------------------------------
 --      emitMultiAssign

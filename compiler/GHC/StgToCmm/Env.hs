@@ -19,7 +19,7 @@ module GHC.StgToCmm.Env (
         bindArgToReg, idToReg,
         getCgIdInfo,
         maybeLetNoEscape,
-    ) where
+        ) where
 
 import GHC.Prelude
 
@@ -36,6 +36,7 @@ import GHC.Types.Id
 import GHC.Cmm.Graph
 import GHC.Types.Name
 import GHC.Core.Type
+import GHC.Core.DataCon
 import GHC.Builtin.Types.Prim
 import GHC.Types.Unique.FM
 import GHC.Types.Var.Env
@@ -43,9 +44,10 @@ import GHC.Types.Var.Env
 import GHC.Utils.Outputable
 import GHC.Utils.Panic
 import GHC.Utils.Panic.Plain
+import GHC.Utils.Misc
 
 import GHC.Driver.Session
-
+import Control.Monad
 
 -------------------------------------
 --        Manipulating CgIdInfo
@@ -161,7 +163,6 @@ cgLookupPanic id
                 pprUFM local_binds $ \infos ->
                   vcat [ ppr (cg_id info) | info <- infos ]
               ])
-
 
 ------------------------------------------------------------------------
 --        Interface functions for binding and re-binding names

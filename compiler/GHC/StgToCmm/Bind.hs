@@ -18,6 +18,8 @@ import GHC.Prelude hiding ((<*>))
 import GHC.Driver.Session
 
 import GHC.Core          ( AltCon(..) )
+import GHC.Core.DataCon ( isMarkedStrict, StrictnessMark (NotMarkedStrict) )
+import GHC.Core.Type
 import GHC.Runtime.Heap.Layout
 import GHC.Unit.Module
 
@@ -33,6 +35,7 @@ import GHC.StgToCmm.DataCon
 import GHC.StgToCmm.Heap
 import GHC.StgToCmm.Prof (ldvEnterClosure, enterCostCentreFun, enterCostCentreThunk,
                    initUpdFrameProf)
+import GHC.StgToCmm.TagCheck
 import GHC.StgToCmm.Ticky
 import GHC.StgToCmm.Layout
 import GHC.StgToCmm.Utils
@@ -64,6 +67,7 @@ import GHC.Data.FastString
 import GHC.Data.List.SetOps
 
 import Control.Monad
+import Data.Maybe
 
 ------------------------------------------------------------------------
 --              Top-level bindings
@@ -222,7 +226,21 @@ cgRhs id (StgRhsCon cc con mn _ts args)
 {- See Note [GC recovery] in "GHC.StgToCmm.Closure" -}
 cgRhs id (StgRhsClosure fvs cc upd_flag args body)
   = do profile <- getProfile
+       dflags <- getDynFlags
+       when (gopt Opt_DoTagInferenceChecks dflags) $ do
+        let marks = idCbvMarks_maybe id
+        case marks of
+          Nothing -> return ()
+          Just marks -> do
+            let cbv_args = filter (isLiftedRuntimeRep . idType) $ filterByList (map isMarkedStrict marks) args
+            arg_infos <- mapM getCgIdInfo cbv_args
+            let arg_cmms = map idInfoToAmode arg_infos
+            zipWithM_ emitTagAssertion (map (showPprUnsafe . ppr) args) (arg_cmms)
+
+
+            return ()
        mkRhsClosure profile id cc (nonVoidIds (dVarSetElems fvs)) upd_flag args body
+
 
 ------------------------------------------------------------------------
 --              Non-constructor right hand sides
@@ -325,6 +343,13 @@ mkRhsClosure    profile bndr _cc
                          -- lose information about this particular
                          -- thunk (e.g. its type) (#949)
   , idArity fun_id == unknownArity -- don't spoil a known call
+
+  -- This guard should only be active with -dtag-inference-checks
+  -- because then, if f is a worker, we want to emit checks for strict
+  -- args
+  -- , case idCbvMarks_maybe fun_id of
+  --     Just marks -> all (== NotMarkedStrict) marks
+  --     Nothing -> True
 
           -- Ha! an Ap thunk
   = cgRhsStdThunk bndr lf_info payload
@@ -522,6 +547,9 @@ closureCodeBody top_lvl bndr cl_info cc args@(arg0:_) body fv_details
                 -- Load free vars out of closure *after*
                 -- heap check, to reduce live vars over check
                 ; when node_points $ load_fvs node lf_info fv_bindings
+                ; dflags <- getDynFlags
+                ; when (gopt Opt_DoTagInferenceChecks dflags) $
+                    emitArgTagCheck bndr (map fromNonVoid nv_args)
                 ; void $ cgExpr body
                 }}}
 

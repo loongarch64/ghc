@@ -26,6 +26,7 @@ import GHC.StgToCmm.Layout
 import GHC.StgToCmm.Lit
 import GHC.StgToCmm.Prim
 import GHC.StgToCmm.Hpc
+import GHC.StgToCmm.TagCheck
 import GHC.StgToCmm.Ticky
 import GHC.StgToCmm.Utils
 import GHC.StgToCmm.Closure
@@ -943,20 +944,6 @@ cgConApp con mn stg_args
         ; emit =<< fcode_init
         ; tickyReturnNewCon (length stg_args)
         ; emitReturn [idInfoToAmode idinfo] }
-
--- | Call barf if we failed to predict a tag correctly.
-emitTagAssertion :: String -> CmmExpr -> FCode ()
-emitTagAssertion onWhat fun = do
-  { platform <- getPlatform
-  ; lret <- newBlockId
-  ; lfault <- newBlockId
-  -- ; pprTraceM "emitTagAssertion" (text onWhat)
-  ; emit $ mkCbranch (cmmIsTagged platform fun)
-                     lret lfault Nothing
-  ; emitLabel lfault
-  ; emitBarf ("Tag inference failed on:" ++ onWhat)
-  ; emitLabel lret
-  }
 
 cgIdApp :: AppEnters -> Id -> [StgArg] -> FCode ReturnKind
 cgIdApp strict fun_id args = do

@@ -605,6 +605,7 @@ Library
         GHC.StgToCmm.Monad
         GHC.StgToCmm.Prim
         GHC.StgToCmm.Prof
+        GHC.StgToCmm.TagCheck
         GHC.StgToCmm.Ticky
         GHC.StgToCmm.Types
         GHC.StgToCmm.Utils

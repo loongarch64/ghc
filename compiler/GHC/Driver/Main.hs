@@ -1751,7 +1751,7 @@ doCodeGen hsc_env this_mod denv data_tycons
     let tmpfs  = hsc_tmpfs hsc_env
     let platform = targetPlatform dflags
 
-    putDumpFileMaybe logger Opt_D_dump_stg_final "CodeGenInput STG:" FormatSTG (pprGenStgTopBindings (initStgPprOpts dflags) stg_binds)
+    putDumpFileMaybe logger Opt_D_dump_stg_cg "CodeGenInput STG:" FormatSTG (pprGenStgTopBindings (initStgPprOpts dflags) stg_binds)
 
     -- Annotate binders with tag information.
     let (!stg_binds_w_tags) = {-# SCC "StgTagFields" #-}

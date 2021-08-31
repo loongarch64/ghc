@@ -336,26 +336,37 @@ rewriteConApp _ = panic "Impossible"
 
 rewriteApp :: IsScrut -> InferStgExpr -> RM TgStgExpr
 rewriteApp True (StgApp _nodeId f args)
+    -- | pprTrace "rewriteAppScrut" (ppr f <+> ppr args) False
+    -- = undefined
     | null args = do
         tagInfo <- isTagged f
         let !enter = (extInfo $ tagInfo)
         return $! StgApp enter f args
+  where
+    extInfo True        = StgSyn.NoEnter
+    extInfo False       = StgSyn.MayEnter
+rewriteApp _ (StgApp _nodeId f args)
+    -- | pprTrace "rewriteAppOther" (ppr f <+> ppr args) False
+    -- = undefined
     | Just marks <- idCbvMarks_maybe f
     -- , pprTrace "marks" (ppr f $$ ppr marks) True
-    , assert (length marks == length args) True
+    , assert (length marks <= length args) True
+    , any isMarkedStrict marks
     = do
+        when (length marks /= length args) $ do
+            pprTraceM "unequal arg/mark length" (ppr f <+> ppr args $$ text "marks:" <> ppr marks)
         argTags <- mapM isArgTagged args
-        let argInfo = zipWith3 ((,,)) args marks argTags :: [(StgArg, StrictnessMark, Bool)]
+        let argInfo = zipWith3 ((,,)) args (marks++repeat NotMarkedStrict)  argTags :: [(StgArg, StrictnessMark, Bool)]
             -- untagged cbv argument positions
 
             cbvArgInfo = filter (\x -> sndOf3 x == MarkedStrict && thdOf3 x == False) argInfo
             cbvArgIds = [x | StgVarArg x <- map fstOf3 cbvArgInfo] :: [Id]
         -- pprTraceM "markArgInfo" (ppr f $$ ppr argInfo)
+        -- pprTraceM "rewriteApp" (ppr f <+> ppr args $$
+        --     ppr(marks,argTags) $$
+        --     text "evalArgs:" <> ppr cbvArgIds )
         mkSeqs args cbvArgIds (\cbv_args -> StgApp MayEnter f cbv_args)
         -- return $ StgApp MayEnter f args
-  where
-    extInfo True        = StgSyn.NoEnter
-    extInfo False       = StgSyn.MayEnter
     -- extInfo MaybeEnter        = StgSyn.MayEnter
     -- extInfo NoValue          = StgSyn.MayEnter
     -- extInfo UndetEnterInfo    = StgSyn.MayEnter

@@ -977,7 +977,7 @@ unbox_one_arg :: WwOpts
 unbox_one_arg opts arg_var cs
           DataConPatContext { dcpc_dc = dc, dcpc_tc_args = tc_args
                             , dcpc_co = co }
-          marked_cbv
+          _marked_cbv
   = do { pat_bndrs_uniqs <- getUniquesM
        ; let ex_name_fss = map getOccFS $ dataConExTyCoVars dc
              (ex_tvs', arg_ids) =
