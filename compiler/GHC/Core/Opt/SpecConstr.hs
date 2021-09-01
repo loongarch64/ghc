@@ -1826,8 +1826,8 @@ calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
     qvar_dmds  = [ lookupVarEnv dmd_env qv `orElse` topDmd | qv <- qvars, isId qv ]
     extra_dmds = dropList val_pats fn_dmds
 
-    bndrs_w_dmds =  set_dmds qvars       qvar_dmds
-                 ++ set_dmds extra_bndrs extra_dmds
+    bndrs_w_dmds =  set_arg_info qvars       qvar_dmds
+                 ++ set_arg_info extra_bndrs extra_dmds
 
     bndrs_w_unfds =
         bndrs_w_dmds
@@ -1836,6 +1836,7 @@ calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
         --   (ppr bndrs_w_dmds $$ hang (text "pats") 2 (vcat $ (map ppr pats))) $
           -- set_arg_unf bndrs_w_dmds pats
 
+    -- I think this version is *very* wrong.
     set_arg_unf :: [Var] -> [CoreExpr] -> [Var]
     set_arg_unf vars [] = vars -- Partially saturated call
     set_arg_unf (v:vs) (p:ps)
@@ -1857,7 +1858,7 @@ calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
           v'
             | isId v
             , isStrUsedDmd d && not (isEvaldUnfolding (idUnfolding v))
-            = -- pprTrace "set_spec_unf_" (ppr v) $
+            = pprTrace "set_spec_unf_" (ppr v) $
               v `setStrUnfolding` MarkedStrict `setIdDemandInfo` d
             | otherwise = setIdDemandInfo v d
 
@@ -2355,11 +2356,16 @@ argToPat env in_scope val_env arg arg_occ _arg_str
   , not (ignoreDataCon env dc)        -- See Note [NoSpecConstr]
   , Just arg_occs <- mb_scrut dc
   = do { let (ty_args, rest_args) = splitAtList (dataConUnivTyVars dc) args
-
+             -- get bangs on cons
              con_str = dataConRepStrictness dc
-       ; assert (length con_str == length rest_args) $ pprTraceM "argToPat" (parens (int $ length con_str) <> ppr con_str  $$ ppr rest_args)
        ; prs <- zipWith3M (argToPat env in_scope val_env) rest_args arg_occs con_str
-       ; let args' = map snd prs
+       ; let args' = map snd prs :: [CoreArg]
+       ; assert (length con_str == length rest_args) $ return ()
+      --  ; assert (length con_str == length rest_args) $
+      --    pprTraceM "argToPat"
+      --       ( parens (int $ length con_str) <> ppr con_str  $$
+      --         ppr rest_args $$
+      --         ppr prs)
        ; return (True, mkConApp dc (ty_args ++ args')) }
   where
     mb_scrut dc = case arg_occ of
@@ -2424,21 +2430,33 @@ argToPat _env _in_scope _val_env arg _arg_occ arg_str
 setStrUnfolding :: Id -> StrictnessMark  -> Id
 -- setStrUnfolding id str = id
 setStrUnfolding id str
-  | not (isId id) -- I think for the coercion case?
+  -- | pprTrace "setStrUnfolding"
+  --   (ppr id <+> ppr (isMarkedStrict str) $$
+  --    ppr (idType id) $$
+  --    text "boxed:" <> ppr (isBoxedType (idType id)) $$
+  --    text "unlifted:" <> ppr (isUnliftedType (idType id))
+
+
+  --    )
+  --   False
+  -- = undefined
+  | not (isId id) || isEvaldUnfolding (idUnfolding id)
   = id
-  | isEvaldUnfolding (idUnfolding id)
-  = id
-  | MarkedStrict <- str
-  , isBoxedRuntimeRep (idType id)
-  = assert (isId id) $
+  | isMarkedStrict str
+  , not (isUnliftedType (idType id)) -- Pointless to stick an evald unfolding on unlifted types
+  = -- trace "setStrUnfolding2" $
+    assert (isId id) $
     assert (not $ hasCoreUnfolding $ idUnfolding id) $
     id `setIdUnfolding` evaldUnfolding
-  | otherwise = id
+  | otherwise
+  = -- trace "setStrUnfolding3"
+    id
 
 wildCardPat :: Type -> StrictnessMark -> UniqSM (Bool, CoreArg)
 wildCardPat ty str
   = do { uniq <- getUniqueM
        ; let id = mkSysLocalOrCoVar (fsLit "sc") uniq Many ty `setStrUnfolding` str
+      --  ; pprTraceM "wildCardPat" (ppr id <+> ppr (idUnfolding id))
        ; return (False, varToCoreExpr id) }
 
 isValue :: ValueEnv -> CoreExpr -> Maybe Value

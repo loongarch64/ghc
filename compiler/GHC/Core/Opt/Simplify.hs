@@ -952,7 +952,7 @@ completeBind env top_lvl mb_cont old_bndr new_bndr new_rhs
 mkCbvMarks :: [Id] -> [StrictnessMark]
 mkCbvMarks = map mkMark
   where
-    mkMark arg = if isEvaldUnfolding (idUnfolding arg) && isBoxedRuntimeRep (idType arg)
+    mkMark arg = if isEvaldUnfolding (idUnfolding arg) && (not $ isUnliftedType (idType arg))
       then MarkedStrict
       else NotMarkedStrict
 

@@ -23,7 +23,7 @@ import GHC.Core.Seq ( seqUnfolding )
 import GHC.Types.Id
 import GHC.Types.Id.Info
 import GHC.Types.Demand ( zapDmdEnvSig )
-import GHC.Core.Type     ( tidyType, tidyVarBndr )
+import GHC.Core.Type     ( tidyType, tidyVarBndr, isUnliftedType )
 import GHC.Core.Coercion ( tidyCo )
 import GHC.Types.Var
 import GHC.Types.Var.Env
@@ -76,7 +76,7 @@ tidyBindDetails id rhs =
     mkCbvMarks :: [Id] -> [StrictnessMark]
     mkCbvMarks = map mkMark
       where
-        mkMark arg = if isEvaldUnfolding (idUnfolding arg) && isBoxedRuntimeRep (idType arg)
+        mkMark arg = if isEvaldUnfolding (idUnfolding arg) && (not $ isUnliftedType (idType arg))
           then MarkedStrict
           else NotMarkedStrict
 
