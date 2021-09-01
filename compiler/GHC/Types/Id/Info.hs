@@ -180,7 +180,7 @@ data IdDetails
         -- Note [Join points] in "GHC.Core"
   | StrictWorkerId [StrictnessMark]
         -- ^ An 'Id' for a worker function, which expects some arguments to be
-        -- passed both evaluated and tagged. TODO: Reference Note
+        -- passed both evaluated and tagged. TODO: Write and reference Note
 
 
 
@@ -696,6 +696,7 @@ zapFragileUnfolding :: Unfolding -> Unfolding
 -- ^ Zaps any core unfolding, but /preserves/ evaluated-ness,
 -- i.e. an unfolding of OtherCon
 zapFragileUnfolding unf
+ | isEvaldUnfolding unf = evaldUnfolding
  | hasCoreUnfolding unf = noUnfolding
  | otherwise            = unf
 

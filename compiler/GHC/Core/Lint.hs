@@ -957,7 +957,6 @@ lintCoreExpr e@(App _ _)
        ; lintCoreArgs app_ty rest }
   | otherwise
   = do { pair <- lintCoreFun fun (length args)
-       ; checkCbvCall e
        ; lintCoreArgs pair args
        }
   where
@@ -979,15 +978,6 @@ lintCoreExpr (Coercion co)
   = do { co' <- addLoc (InCo co) $
                 lintCoercion co
        ; return (coercionType co', zeroUE) }
-
-checkCbvCall :: CoreExpr -> LintM ()
-checkCbvCall e@(App (Var fun) _) = do
-  let (_fun, args, _ticks) = collectArgsTicks (const True) e
-  let marks = fromMaybe [] $ idCbvMarks_maybe fun
-  if length marks > length args
-    then failWithL (text "Undersatured cbv marked ID in App" <+> ppr e)
-    else return ()
-checkCbvCall _ = return ()
 
 ----------------------
 lintIdOcc :: Var -> Int -- Number of arguments (type or value) being passed

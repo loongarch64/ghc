@@ -16,6 +16,9 @@ module GHC.Core.Tidy (
 import GHC.Prelude
 
 import GHC.Core
+import GHC.Core.Type
+import GHC.Core.DataCon
+
 import GHC.Core.Seq ( seqUnfolding )
 import GHC.Types.Id
 import GHC.Types.Id.Info
@@ -50,12 +53,32 @@ tidyBind env (NonRec bndr rhs)
 
 tidyBind env (Rec prs)
   = let
-       (bndrs, rhss)  = unzip prs
-       (env', bndrs') = mapAccumL (tidyLetBndr env') env bndrs
+       cbv_bndrs = map ((\(bnd,rhs) -> tidyBindDetails bnd rhs)) prs
+       (_bndrs, rhss)  = unzip prs
+       (env', bndrs') = mapAccumL (tidyLetBndr env') env cbv_bndrs
     in
     map (tidyExpr env') rhss =: \ rhss' ->
     (env', Rec (zip bndrs' rhss'))
 
+tidyBindDetails :: Id -> CoreExpr -> Id
+tidyBindDetails id rhs =
+  -- For a binding we:
+  -- * Look at the args
+  -- * Mark any with Unf=OtherCon[] as cbv
+  -- * Potentially combine it with existing marks (from ww)
+  -- Update the id
+  let (_,val_args,_body) = collectTyAndValBinders rhs
+      new_marks = mkCbvMarks val_args
+      cbv_marks = new_marks
+      cbv_bndr = setIdCbvMarks id cbv_marks
+  in cbv_bndr
+  where
+    mkCbvMarks :: [Id] -> [StrictnessMark]
+    mkCbvMarks = map mkMark
+      where
+        mkMark arg = if isEvaldUnfolding (idUnfolding arg) && isBoxedRuntimeRep (idType arg)
+          then MarkedStrict
+          else NotMarkedStrict
 
 ------------  Expressions  --------------
 tidyExpr :: TidyEnv -> CoreExpr -> CoreExpr

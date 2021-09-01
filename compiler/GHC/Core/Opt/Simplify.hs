@@ -917,6 +917,18 @@ completeBind env top_lvl mb_cont old_bndr new_bndr new_rhs
       ; new_unfolding <- simplLetUnfolding env top_lvl mb_cont old_bndr
                          eta_rhs (idType new_bndr) new_arity old_unf
 
+      -- This all seems a bit horrible, but it works for now.
+      -- For a binding we:
+      -- * Look at the args
+      -- * Mark any with Unf=OtherCon[] as cbv
+      -- * Potentially combine it with existing marks (from ww)
+      -- Update the id
+      ; let (_,val_args,_body) = collectTyAndValBinders eta_rhs
+            new_marks = mkCbvMarks val_args
+
+            cbv_marks = new_marks
+            cbv_bndr = setIdCbvMarks new_bndr cbv_marks
+
       ; let new_bndr_w_info = addLetBndrInfo new_bndr new_arity new_unfolding
         -- See Note [In-scope set as a substitution]
 
@@ -936,6 +948,13 @@ completeBind env top_lvl mb_cont old_bndr new_bndr new_rhs
         else -- Keep the binding; do cast worker/wrapper
              -- pprTrace "Binding" (ppr final_bndr <+> ppr new_unfolding) $
              tryCastWorkerWrapper env top_lvl old_bndr occ_info new_bndr_w_info eta_rhs }
+
+mkCbvMarks :: [Id] -> [StrictnessMark]
+mkCbvMarks = map mkMark
+  where
+    mkMark arg = if isEvaldUnfolding (idUnfolding arg) && isBoxedRuntimeRep (idType arg)
+      then MarkedStrict
+      else NotMarkedStrict
 
 addLetBndrInfo :: OutId -> ArityType -> Unfolding -> OutId
 addLetBndrInfo new_bndr new_arity_type new_unf
@@ -3101,6 +3120,11 @@ simplAlt env scrut' _ case_bndr' cont' (Alt (DataAlt con) vs rhs)
 
         ; env'' <- addAltUnfoldings env' scrut' case_bndr' con_app
         ; rhs' <- simplExprC env'' rhs cont'
+        -- ; pprTraceM "simplAlt" (
+        --       ppr con $$
+        --       ppr vs_with_evals $$
+        --       ppr (map (isEvaldUnfolding . idUnfolding) vs_with_evals )
+        --       )
         ; return (Alt (DataAlt con) vs' rhs') }
 
 {- Note [Adding evaluatedness info to pattern-bound variables]

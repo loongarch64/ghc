@@ -790,7 +790,6 @@ mkWWBindPair ww_opts fn_id fn_info fn_args fn_body work_uniq div cpr
                         -- through
 
                 `setIdCbvMarks` cbv_marks
-                -- `setIdCbvMarks2` cbv_marks
 
                 `asJoinId_maybe` work_join_arity
                 -- `setIdThing` (undefined cbv_marks)
@@ -976,6 +975,6 @@ splitThunk ww_opts is_rec x rhs
        ; (useful,_, _cbvs, wrap_fn, fn_arg)
            <- mkWWstr_one ww_opts NotArgOfInlineableFun x' NotMarkedStrict
        ; let res = [ (x, Let (NonRec x' rhs) (wrap_fn fn_arg)) ]
-       ; if useful then assertPpr (isNonRec is_rec) (ppr x) -- The thunk must be non-recursive
+       ; if isGoodWorker useful then assertPpr (isNonRec is_rec) (ppr x) -- The thunk must be non-recursive
                    return res
                    else return [(x, rhs)] }
