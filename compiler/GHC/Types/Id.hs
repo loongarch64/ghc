@@ -262,6 +262,11 @@ maybeModifyIdInfo :: Maybe IdInfo -> Id -> Id
 maybeModifyIdInfo (Just new_info) id = lazySetIdInfo id new_info
 maybeModifyIdInfo Nothing         id = id
 
+-- maybeModifyIdInfo tries to avoid unnecessary thrashing
+maybeModifyIdDetails :: Maybe IdDetails  -> Id -> Id
+maybeModifyIdDetails (Just new_details) id = setIdDetails id new_details
+maybeModifyIdDetails Nothing         id = id
+
 {-
 ************************************************************************
 *                                                                      *
@@ -638,7 +643,7 @@ asJoinId id arity = warnPprTrace (not (isLocalId id))
   where
     is_vanilla_or_join id = case Var.idDetails id of
                               VanillaId -> True
-                              -- Can workers become join ids?
+                              -- Can workers become join ids? Yes!
                               StrictWorkerId {} -> pprTraceDebug "asJoinId (strict worker)" (ppr id) True
                               JoinId {} -> True
                               _         -> False
@@ -739,11 +744,27 @@ idDemandInfo       id = demandInfo (idInfo id)
 setIdDemandInfo :: Id -> Demand -> Id
 setIdDemandInfo id dmd = modifyIdInfo (`setDemandInfo` dmd) id
 
+-- | If all marks are NotMarkedStrict we just set nothing.
 setIdCbvMarks :: Id -> [StrictnessMark] -> Id
-setIdCbvMarks id marks = case idDetails id of
-  -- TODO: Join points?
-  VanillaId -> id `setIdDetails` (StrictWorkerId marks)
-  _ -> pprTrace "setIdCbvMarks: Unable to set cbv marks for" (ppr id <+> ppr marks) id
+setIdCbvMarks id marks
+  | null marks                     = maybeModifyIdDetails (removeMarks $ idDetails id) id
+  | not (any isMarkedStrict marks) = maybeModifyIdDetails (removeMarks $ idDetails id) id
+  | otherwise =
+      case idDetails id of
+        VanillaId -> id `setIdDetails` (StrictWorkerId marks)
+        JoinId arity _ -> id `setIdDetails` (JoinId arity (Just marks))
+        StrictWorkerId _ -> id `setIdDetails` (StrictWorkerId marks)
+        RecSelId{} -> id
+        DFunId{} -> id
+        _ -> pprTrace "setIdCbvMarks: Unable to set cbv marks for" (ppr id $$
+              text "marks:" <> ppr marks $$
+              text "idDetails:" <> ppr (idDetails id)) id
+
+    where
+      removeMarks details = case details of
+        JoinId arity (Just _) -> Just $ JoinId arity Nothing
+        StrictWorkerId _ -> Just VanillaId
+        _ -> Nothing
 
 idCbvMarks_maybe :: Id -> Maybe [StrictnessMark]
 idCbvMarks_maybe id = case idDetails id of
@@ -924,6 +945,7 @@ updOneShotInfo id one_shot
 --      f = \x -> e
 -- If we change the one-shot-ness of x, f's type changes
 
+-- Replaces the id info if the zapper returns @Just idinfo@
 zapInfo :: (IdInfo -> Maybe IdInfo) -> Id -> Id
 zapInfo zapper id = maybeModifyIdInfo (zapper (idInfo id)) id
 
