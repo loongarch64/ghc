@@ -577,8 +577,26 @@ expandTypeSynonyms ty
     go_co _ (HoleCo h)
       = pprPanic "expandTypeSynonyms hit a hole" (ppr h)
 
+    go_dco subst ReflDCo
+      = ReflDCo
+    go_dco subst (TyConAppDCo args)
+      = {-mk-}TyConAppDCo (map (go_dco subst) args)
+    go_dco subst (AppDCo co arg)
+      = {-mk-}AppDCo (go_dco subst co) (go_dco subst arg)
+    go_dco subst (ForAllDCo tv kind_co co)
+      = let (subst', tv', kind_co') = go_cobndr subst tv kind_co in
+        {-mk-}ForAllDCo tv' kind_co' (go_dco subst' co)
+    go_dco subst (CoVarDCo cv)
+      = CoDCo (substCoVar subst cv)
+    go_dco subst AxiomInstDCo
+      = AxiomInstDCo
+    go_dco subst (TransDCo co1 co2)
+      = {-mk-}TransDCo (go_dco subst co1) (go_dco subst co2)
+    go_dco subst (CoDCo co) = CoDCo (go_co subst co)
+
     go_prov subst (PhantomProv co)    = PhantomProv (go_co subst co)
     go_prov subst (ProofIrrelProv co) = ProofIrrelProv (go_co subst co)
+    go_prov subst (DCoProv dco)       = DCoProv (go_dco subst dco)
     go_prov _     p@(PluginProv _)    = p
     go_prov _     p@(CorePrepProv _)  = p
 
@@ -911,8 +929,32 @@ mapTyCoX (TyCoMapper { tcm_tyvar = tyvar
            ; return $ mkForAllCo tv' kind_co' co' }
         -- See Note [Efficiency for ForAllCo case of mapTyCoX]
 
+    go_dcos _   []       = return []
+    go_dcos env (co:cos) = (:) <$> go_dco env co <*> go_dcos env cos
+
+    go_dco env ReflDCo          = pure ReflDCo
+    go_dco env (AppDCo c1 c2)   = AppDCo <$> go_dco env c1 <*> go_dco env c2
+    go_dco env (CoVarDCo cv)    = CoDCo <$> covar env cv
+    go_dco env (TransDCo c1 c2) = TransDCo <$> go_dco env c1 <*> go_dco env c2
+    go_dco env (AxiomInstDCo)   = pure AxiomInstDCo
+    go_dco env (CoDCo co)       = CoDCo <$> go_co env co
+    go_dco env co@(TyConAppDCo cos)
+      -- Not a TcTyCon
+      | null cos    -- Avoid allocation in this very
+      = return co   -- common case (E.g. Int, LiftedRep etc)
+
+      | otherwise
+      = TyConAppDCo <$> go_dcos env cos
+    go_dco env (ForAllDCo tv kind_co co)
+      = do { kind_co' <- go_co env kind_co
+           ; (env', tv') <- tycobinder env tv Inferred
+           ; co' <- go_dco env' co
+           ; return $ ForAllDCo tv' kind_co' co' }
+        -- See Note [Efficiency for ForAllCo case of mapTyCoX]
+
     go_prov env (PhantomProv co)    = PhantomProv <$> go_co env co
     go_prov env (ProofIrrelProv co) = ProofIrrelProv <$> go_co env co
+    go_prov env (DCoProv dco)       = DCoProv <$> go_dco env dco
     go_prov _   p@(PluginProv _)    = return p
     go_prov _   p@(CorePrepProv _)  = return p
 
@@ -3139,8 +3181,36 @@ occCheckExpand vs_to_avoid ty
                                              ; return (mkAxiomRuleCo ax cs') }
 
     ------------------
+    go_dco cxt ReflDCo                 = pure ReflDCo
+      -- Note: Coercions do not contain type synonyms
+    go_dco cxt (TyConAppDCo args)    = do { args' <- mapM (go_dco cxt) args
+                                             ; return (TyConAppDCo args') }
+    go_dco cxt (AppDCo co arg)            = do { co' <- go_dco cxt co
+                                             ; arg' <- go_dco cxt arg
+                                             ; return (AppDCo co' arg') }
+    go_dco cxt@(as, env) (ForAllDCo tv kind_co body_co)
+      = do { kind_co' <- go_co cxt kind_co
+           ; let tv' = setVarType tv $
+                       coercionLKind kind_co'
+                 env' = extendVarEnv env tv tv'
+                 as'  = as `delVarSet` tv
+           ; body' <- go_dco (as', env') body_co
+           ; return (ForAllDCo tv' kind_co' body') }
+    go_dco (as,env) co@(CoVarDCo c)
+      | Just c' <- lookupVarEnv env c   = return (CoDCo (mkCoVarCo c'))
+      | bad_var_occ as c                = Nothing
+      | otherwise                       = return co
+
+    go_dco cxt AxiomInstDCo = pure AxiomInstDCo
+    go_dco cxt (TransDCo co1 co2)         = do { co1' <- go_dco cxt co1
+                                             ; co2' <- go_dco cxt co2
+                                             ; return (TransDCo co1' co2') }
+    go_dco cxt (CoDCo co) = CoDCo <$> go_co cxt co
+
+    ------------------
     go_prov cxt (PhantomProv co)    = PhantomProv <$> go_co cxt co
     go_prov cxt (ProofIrrelProv co) = ProofIrrelProv <$> go_co cxt co
+    go_prov cxt (DCoProv dco)       = DCoProv <$> go_dco cxt dco
     go_prov _   p@(PluginProv _)    = return p
     go_prov _   p@(CorePrepProv _)  = return p
 
@@ -3194,8 +3264,18 @@ tyConsOfType ty
      go_mco MRefl    = emptyUniqSet
      go_mco (MCo co) = go_co co
 
+     go_dco ReflDCo                 = emptyUniqSet
+     go_dco (TyConAppDCo args)      = go_dcos args
+     go_dco (AppDCo co arg)          = go_dco co `unionUniqSets` go_dco arg
+     go_dco (ForAllDCo _ kind_co co) = go_co kind_co `unionUniqSets` go_dco co
+     go_dco AxiomInstDCo             = emptyUniqSet
+     go_dco (CoVarDCo {})            = emptyUniqSet
+     go_dco (TransDCo co1 co2)       = go_dco co1 `unionUniqSets` go_dco co2
+     go_dco (CoDCo co)               = go_co co
+
      go_prov (PhantomProv co)    = go_co co
      go_prov (ProofIrrelProv co) = go_co co
+     go_prov (DCoProv dco)       = go_dco dco
      go_prov (PluginProv _)      = emptyUniqSet
      go_prov (CorePrepProv _)    = emptyUniqSet
         -- this last case can happen from the tyConsOfType used from
@@ -3203,6 +3283,7 @@ tyConsOfType ty
 
      go_s tys     = foldr (unionUniqSets . go)     emptyUniqSet tys
      go_cos cos   = foldr (unionUniqSets . go_co)  emptyUniqSet cos
+     go_dcos dcos = foldr (unionUniqSets . go_dco) emptyUniqSet dcos
 
      go_tc tc = unitUniqSet tc
      go_ax ax = go_tc $ coAxiomTyCon ax

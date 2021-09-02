@@ -2171,6 +2171,8 @@ lintCoercion co@(UnivCo prov r ty1 ty2)
             ; check_kinds kco k1 k2
             ; return (ProofIrrelProv kco') }
 
+     lint_prov k1 k2 (DCoProv dco) = return (DCoProv dco) -- AMG TODO: lint dcos
+
      lint_prov _ _ prov@(PluginProv _)   = return prov
      lint_prov _ _ prov@(CorePrepProv _) = return prov
 

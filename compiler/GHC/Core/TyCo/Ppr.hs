@@ -20,6 +20,7 @@ module GHC.Core.TyCo.Ppr
 
         -- * Pretty-printing coercions
         pprCo, pprParendCo,
+        pprDCo,
 
         debugPprType,
   ) where
@@ -28,7 +29,8 @@ import GHC.Prelude
 
 import {-# SOURCE #-} GHC.CoreToIface
    ( toIfaceTypeX, toIfaceTyLit, toIfaceForAllBndr
-   , toIfaceTyCon, toIfaceTcArgs, toIfaceCoercionX )
+   , toIfaceTyCon, toIfaceTcArgs, toIfaceCoercionX
+   , toIfaceDCoercionX )
 
 import {-# SOURCE #-} GHC.Core.DataCon
    ( dataConFullSig , dataConUserTyVarBinders, DataCon )
@@ -131,6 +133,7 @@ tidyToIfaceTypeX env ty = toIfaceTypeX (mkVarSet free_tcvs) (tidyType env' ty)
 pprCo, pprParendCo :: Coercion -> SDoc
 pprCo       co = getPprStyle $ \ sty -> pprIfaceCoercion (tidyToIfaceCoSty co sty)
 pprParendCo co = getPprStyle $ \ sty -> pprParendIfaceCoercion (tidyToIfaceCoSty co sty)
+pprDCo      co = getPprStyle $ \ sty -> pprIfaceDCoercion (tidyToIfaceDCoSty co sty)
 
 tidyToIfaceCoSty :: Coercion -> PprStyle -> IfaceCoercion
 tidyToIfaceCoSty co sty
@@ -149,6 +152,27 @@ tidyToIfaceCo co = toIfaceCoercionX (mkVarSet free_tcvs) (tidyCo env co)
   where
     env       = tidyFreeTyCoVars emptyTidyEnv free_tcvs
     free_tcvs = scopedSort $ tyCoVarsOfCoList co
+
+tidyToIfaceDCoSty :: DCoercion -> PprStyle -> IfaceDCoercion
+tidyToIfaceDCoSty co sty
+  | userStyle sty = tidyToIfaceDCo co
+  | otherwise     = toIfaceDCoercionX (tyCoVarsOfDCo co) co
+     -- in latter case, don't tidy, as we'll be printing uniques.
+
+tidyToIfaceDCo :: DCoercion -> IfaceDCoercion
+-- It's vital to tidy before converting to an IfaceType
+-- or nested binders will become indistinguishable!
+--
+-- Also for the free type variables, tell toIfaceDCoercionX to
+-- leave them as IfaceFreeCoVarDCo.  This is super-important
+-- for debug printing.
+tidyToIfaceDCo co = toIfaceDCoercionX (mkVarSet free_tcvs) (tidyDCo env co)
+  where
+    env       = tidyFreeTyCoVars emptyTidyEnv free_tcvs
+    free_tcvs = scopedSort $ tyCoVarsOfDCoList co
+
+
+
 ------------
 pprClassPred :: Class -> [Type] -> SDoc
 pprClassPred clas tys = pprTypeApp (classTyCon clas) tys

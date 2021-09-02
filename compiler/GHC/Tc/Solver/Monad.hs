@@ -1087,7 +1087,7 @@ lookupFamAppInert fam_tc tys
     lookup_inerts inert_funeqs
       | Just (EqualCtList (CEqCan { cc_ev = ctev, cc_rhs = rhs } :| _))
           <- findFunEq inert_funeqs fam_tc tys
-      = Just (mkReduction (ctEvCoercion ctev) rhs
+      = Just (mkReduction (CoDCo (ctEvCoercion ctev)) rhs
              ,ctEvFlavourRole ctev)
       | otherwise = Nothing
 
@@ -1148,7 +1148,7 @@ dropFromFamAppCache varset
   where
     check :: Reduction -> Bool
     check redn
-      = not (anyFreeVarsOfCo (`elemVarSet` varset) $ reductionCoercion redn)
+      = not (anyFreeVarsOfDCo (`elemVarSet` varset) $ reductionCoercion redn)
 
 {- *********************************************************************
 *                                                                      *
@@ -2321,7 +2321,7 @@ breakTyVarCycle_maybe ev cte_result (TyVarLHS lhs_tv) rhs
         do { new_tv <- wrapTcS (TcM.newFlexiTyVar fun_app_kind)
            ; let new_ty = mkTyVarTy new_tv
            ; co <- emitNewWantedEq new_loc Nominal new_ty fun_app
-           ; return $ mkReduction (mkSymCo co) new_ty }
+           ; return $ mkReduction (CoDCo (mkSymCo co)) new_ty }
 
       -- See Detail (7) of the Note
     new_loc = updateCtLocOrigin (ctEvLoc ev) CycleBreakerOrigin

@@ -162,7 +162,7 @@ normaliseFfiType' env ty0 = runWriterT $ go Representational initRecTc ty0
 
         | isFamilyTyCon tc              -- Expand open tycons
         , Reduction co ty <- normaliseTcApp env role tc tys
-        , not (isReflexiveCo co)
+        , not (isReflDCo co) -- AMG TODO: was isReflexiveCo; does this matter?
         = do redn <- go role rec_nts ty
              return $ co `mkTransRedn` redn
 
@@ -175,7 +175,7 @@ normaliseFfiType' env ty0 = runWriterT $ go Representational initRecTc ty0
                             zipWithM ( \ ty r -> go r rec_nts ty )
                                      tys (tyConRolesX role tc)
                  ; return $ mkTyConAppRedn role tc args }
-          nt_co  = mkUnbranchedAxInstCo role (newTyConCo tc) tys []
+          nt_co  = AxiomInstDCo -- mkUnbranchedAxInstCo role (newTyConCo tc) tys []
           nt_rhs = newTyConInstRhs tc tys
 
           ty      = mkTyConApp tc tys
@@ -257,7 +257,7 @@ tcFImport (L dloc fo@(ForeignImport { fd_name = L nloc nm, fd_sig_ty = hs_ty
           -- we need HsType Id hence the undefined
        ; let fi_decl = ForeignImport { fd_name = L nloc id
                                      , fd_sig_ty = undefined
-                                     , fd_i_ext = mkSymCo norm_co
+                                     , fd_i_ext = mkSymCo (mkDCoCo Representational sig_ty norm_sig_ty norm_co)
                                      , fd_fi = imp_decl' }
        ; return (id, L dloc fi_decl, gres) }
 tcFImport d = pprPanic "tcFImport" (ppr d)
@@ -412,7 +412,7 @@ tcFExport fo@(ForeignExport { fd_name = L loc nm, fd_sig_ty = hs_ty, fd_fe = spe
     return ( mkVarBind id rhs
            , ForeignExport { fd_name = L loc id
                            , fd_sig_ty = undefined
-                           , fd_e_ext = norm_co
+                           , fd_e_ext = mkDCoCo Representational sig_ty norm_sig_ty norm_co
                            , fd_fe = spec' }
            , gres)
 tcFExport d = pprPanic "tcFExport" (ppr d)

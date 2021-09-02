@@ -1478,7 +1478,7 @@ can_eq_newtype_nc ev swapped ty1 ((gres, co1), ty1') ty2 ps_ty2
          -- module, don't warn about it being unused.
          -- See Note [Tracking unused binding and imports] in GHC.Tc.Utils.
 
-       ; let redn1 = mkReduction co1 ty1'
+       ; let redn1 = mkReduction (CoDCo co1) ty1'
 
        ; new_ev <- rewriteEqEvidence ev swapped
                      redn1
@@ -2992,10 +2992,10 @@ rewriteEvidence old_ev@(CtDerived {}) (Reduction _co new_pred)
     continueWith (old_ev { ctev_pred = new_pred })
 
 rewriteEvidence old_ev (Reduction co new_pred)
-  | isTcReflCo co -- See Note [Rewriting with Refl]
+  | isReflDCo co -- See Note [Rewriting with Refl]
   = continueWith (old_ev { ctev_pred = new_pred })
 
-rewriteEvidence ev@(CtGiven { ctev_evar = old_evar, ctev_loc = loc }) (Reduction co new_pred)
+rewriteEvidence ev@(CtGiven { ctev_evar = old_evar, ctev_loc = loc }) (Reduction dco new_pred)
   = do { new_ev <- newGivenEvVar loc (new_pred, new_tm)
        ; continueWith new_ev }
   where
@@ -3003,12 +3003,15 @@ rewriteEvidence ev@(CtGiven { ctev_evar = old_evar, ctev_loc = loc }) (Reduction
     new_tm = mkEvCast (evId old_evar)
                 (tcDowngradeRole Representational (ctEvRole ev) co)
 
+    co = mkDCoCo (ctEvRole ev) (ctEvPred ev) new_pred dco
+
 rewriteEvidence ev@(CtWanted { ctev_dest = dest
                              , ctev_nosh = si
-                             , ctev_loc = loc }) (Reduction co new_pred)
+                             , ctev_loc = loc }) (Reduction dco new_pred)
   = do { mb_new_ev <- newWanted_SI si loc new_pred
                -- The "_SI" variant ensures that we make a new Wanted
                -- with the same shadow-info as the existing one (#16735)
+       ; let co = mkDCoCo (ctEvRole ev) (ctEvPred ev) new_pred dco
        ; massert (tcCoercionRole co == ctEvRole ev)
        ; setWantedEvTerm dest
             (mkEvCast (getEvExpr mb_new_ev)
@@ -3039,22 +3042,29 @@ rewriteEqEvidence :: CtEvidence         -- Old evidence :: olhs ~ orhs (not swap
 --      w : orhs ~ olhs = rhs_co ; sym w1 ; sym lhs_co
 --
 -- It's all a form of rewriteEvidence, specialised for equalities
-rewriteEqEvidence old_ev swapped (Reduction lhs_co nlhs) (Reduction rhs_co nrhs)
+rewriteEqEvidence old_ev swapped (Reduction lhs_dco nlhs) (Reduction rhs_dco nrhs)
   | CtDerived {} <- old_ev  -- Don't force the evidence for a Derived
   = return (old_ev { ctev_pred = new_pred })
 
   | NotSwapped <- swapped
-  , isTcReflCo lhs_co      -- See Note [Rewriting with Refl]
-  , isTcReflCo rhs_co
+  , isReflDCo lhs_dco      -- See Note [Rewriting with Refl]
+  , isReflDCo rhs_dco
   = return (old_ev { ctev_pred = new_pred })
 
   | CtGiven { ctev_evar = old_evar } <- old_ev
+  , let (lhs_ty, rhs_ty) = uncurry (unSwap swapped (,)) $ getEqPredTys (ctEvPred old_ev) -- AMG TODO: swapped?
+  , let lhs_co = mkDCoCo (ctEvRole old_ev) lhs_ty nlhs lhs_dco
+  , let rhs_co = mkDCoCo (ctEvRole old_ev) rhs_ty nrhs rhs_dco
+
   = do { let new_tm = evCoercion ( mkTcSymCo lhs_co
                                   `mkTcTransCo` maybeTcSymCo swapped (mkTcCoVarCo old_evar)
                                   `mkTcTransCo` rhs_co)
        ; newGivenEvVar loc' (new_pred, new_tm) }
 
   | CtWanted { ctev_dest = dest, ctev_nosh = si } <- old_ev
+  , let (lhs_ty, rhs_ty) = uncurry (unSwap swapped (,)) $ getEqPredTys (ctEvPred old_ev)  -- AMG TODO: swapped?
+  , let lhs_co = mkDCoCo (ctEvRole old_ev) lhs_ty nlhs lhs_dco
+  , let rhs_co = mkDCoCo (ctEvRole old_ev) rhs_ty nrhs rhs_dco
   = do { (new_ev, hole_co) <- newWantedEq_SI si loc'
                                              (ctEvRole old_ev) nlhs nrhs
                -- The "_SI" variant ensures that we make a new Wanted

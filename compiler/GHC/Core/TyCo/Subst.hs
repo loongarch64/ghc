@@ -813,8 +813,13 @@ substCos subst cos
   | otherwise = checkValidSubst subst [] cos $ map (subst_co subst) cos
 
 subst_co :: TCvSubst -> Coercion -> Coercion
-subst_co subst co
-  = go co
+subst_co = fst . subst_co_dco
+
+subst_dco :: TCvSubst -> DCoercion -> DCoercion
+subst_dco = snd . subst_co_dco
+
+subst_co_dco :: TCvSubst -> (Coercion -> Coercion, DCoercion -> DCoercion)
+subst_co_dco subst = (go, go_dco)
   where
     go_ty :: Type -> Type
     go_ty = subst_ty subst
@@ -849,8 +854,23 @@ subst_co subst co
                                 in cs1 `seqList` AxiomRuleCo c cs1
     go (HoleCo h)            = HoleCo $! go_hole h
 
+    go_dco :: DCoercion -> DCoercion
+    go_dco ReflDCo               = ReflDCo
+    go_dco (TyConAppDCo args)    = let args' = map go_dco args
+                                   in  args' `seqList` {-AMG TODO mk-}TyConAppDCo args'
+    go_dco (AppDCo co arg)       = ({-AMG TODO mk-}AppDCo $! go_dco co) $! go_dco arg
+    go_dco (ForAllDCo tv kind_co co)
+      = case substForAllCoBndrUnchecked subst tv kind_co of
+         (subst', tv', kind_co') ->
+          (({-AMG TODO mk-}ForAllDCo $! tv') $! kind_co') $! subst_dco subst' co
+    go_dco (CoVarDCo cv)         = CoDCo (substCoVar subst cv)
+    go_dco AxiomInstDCo          = AxiomInstDCo
+    go_dco (TransDCo co1 co2)    = ({-TODO mk-}TransDCo $! (go_dco co1)) $! (go_dco co2)
+    go_dco (CoDCo co)            = CoDCo (go co)
+
     go_prov (PhantomProv kco)    = PhantomProv (go kco)
     go_prov (ProofIrrelProv kco) = ProofIrrelProv (go kco)
+    go_prov (DCoProv dco)        = DCoProv (go_dco dco)
     go_prov p@(PluginProv _)     = p
     go_prov p@(CorePrepProv _)   = p
 

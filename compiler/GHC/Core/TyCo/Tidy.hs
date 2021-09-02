@@ -15,6 +15,7 @@ module GHC.Core.TyCo.Tidy
         tidyTopType,
         tidyKind,
         tidyCo, tidyCos,
+        tidyDCo,
         tidyTyCoVarBinder, tidyTyCoVarBinders
   ) where
 
@@ -227,8 +228,13 @@ tidyKind = tidyType
 --
 -- See Note [Strictness in tidyType and friends]
 tidyCo :: TidyEnv -> Coercion -> Coercion
-tidyCo env@(_, subst) co
-  = go co
+tidyCo = fst . tidyCoDCo
+
+tidyDCo :: TidyEnv -> DCoercion -> DCoercion
+tidyDCo = snd . tidyCoDCo
+
+tidyCoDCo :: TidyEnv -> (Coercion -> Coercion, DCoercion -> DCoercion)
+tidyCoDCo env@(_, subst) = (go, go_dco)
   where
     go_mco MRefl    = MRefl
     go_mco (MCo co) = MCo $! go co
@@ -258,8 +264,23 @@ tidyCo env@(_, subst) co
     go (SubCo co)            = SubCo $! go co
     go (AxiomRuleCo ax cos)  = AxiomRuleCo ax $ strictMap go cos
 
+    go_dco ReflDCo           = ReflDCo
+    go_dco (TyConAppDCo cos) = TyConAppDCo $! strictMap go_dco cos
+    go_dco (AppDCo co1 co2)       = (AppDCo $! go_dco co1) $! go_dco co2
+    go_dco (ForAllDCo tv h co)    = ((ForAllDCo $! tvp) $! (go h)) $! tidyDCo envp co
+                               where (envp, tvp) = tidyVarBndr env tv
+            -- the case above duplicates a bit of work in tidying h and the kind
+            -- of tv. But the alternative is to use coercionKind, which seems worse.
+    go_dco (CoVarDCo cv)          = case lookupVarEnv subst cv of
+                                 Nothing  -> CoVarDCo cv
+                                 Just cv' -> CoVarDCo cv'
+    go_dco AxiomInstDCo  = AxiomInstDCo
+    go_dco (TransDCo co1 co2)     = (TransDCo $! go_dco co1) $! go_dco co2
+    go_dco (CoDCo co) = CoDCo (go co)
+
     go_prov (PhantomProv co)    = PhantomProv $! go co
     go_prov (ProofIrrelProv co) = ProofIrrelProv $! go co
+    go_prov (DCoProv dco)       = DCoProv $! go_dco dco
     go_prov p@(PluginProv _)    = p
     go_prov p@(CorePrepProv _)  = p
 

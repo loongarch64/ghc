@@ -2636,7 +2636,7 @@ normSplitTyConApp_maybe fam_envs ty
   | let Reduction co ty1 = topNormaliseType_maybe fam_envs ty
                            `orElse` (mkReflRedn Representational ty)
   , Just (tc, tc_args) <- splitTyConApp_maybe ty1
-  = Just (tc, tc_args, co)
+  = Just (tc, tc_args, mkDCoCo Representational ty ty1 co)
 normSplitTyConApp_maybe _ _ = Nothing
 
 {-

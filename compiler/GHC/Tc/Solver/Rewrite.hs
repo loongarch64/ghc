@@ -472,7 +472,7 @@ rewrite_args_slow binders inner_ki fvs roles tys
 -- Note [No derived kind equalities]
   = do { rewritten_args <- zipWith3M fl (map isNamedBinder binders ++ repeat True)
                                         roles tys
-       ; return $ simplifyArgsWorker binders inner_ki fvs roles rewritten_args }
+       ; return $ simplifyArgsWorker binders inner_ki fvs roles tys rewritten_args }
   where
     {-# INLINE fl #-}
     fl :: Bool   -- must we ensure to produce a real coercion here?
@@ -612,14 +612,19 @@ rewrite_app_ty_args fun_redn@(Reduction fun_co fun_xi) arg_tys
                   -- its second coercion to be Nominal, and the arg_cos might
                   -- not be. The solution is to use transitivity:
                   -- fun_co <a_1> ... <a_m> ;; T <xi_1> .. <xi_n> arg_co_1 ... arg_co_m
-                ; eq_rel <- getEqRel
+
+                  -- AMG TODO: clean up
+--                ; eq_rel <- getEqRel
                 ; let app_xi = mkTyConApp tc (xis ++ arg_xis)
+                      app_co = mkAppDCos fun_co arg_cos
+{-
                       app_co = case eq_rel of
                         NomEq  -> mkAppCos fun_co arg_cos
                         ReprEq -> mkAppCos fun_co (map mkNomReflCo arg_tys)
                                   `mkTcTransCo`
                                   mkTcTyConAppCo Representational tc
                                     (zipWith mkReflCo tc_roles xis ++ arg_cos)
+-}
 
                 ; return $
                     mkHetReduction
@@ -818,7 +823,7 @@ rewrite_exact_fam_app tc tys
          --   full_co = F co_1 ... co_n ;; fam_co
        ; let
            role    = eqRelRole eq_rel
-           args_co = mkTyConAppCo role tc cos
+           args_co = mkTyConAppDCo {-role tc-} cos
        ;  let homogenise :: Reduction -> Reduction
               homogenise redn
                 = homogeniseHetRedn role
@@ -1023,7 +1028,7 @@ rewrite_tyvar2 tv fr@(_, eq_rel)
                             (NomEq, NomEq)  -> rewriting_co1
                             (NomEq, ReprEq) -> mkSubCo rewriting_co1
 
-                    ; return $ RTRFollowed $ mkReduction rewriting_co rhs_ty }
+                    ; return $ RTRFollowed $ mkReduction (CoDCo rewriting_co) rhs_ty }
                     -- NB: ct is Derived then fmode must be also, hence
                     -- we are not going to touch the returned coercion
                     -- so ctEvCoercion is fine.
