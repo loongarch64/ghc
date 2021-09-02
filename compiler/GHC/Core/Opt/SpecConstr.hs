@@ -1744,7 +1744,7 @@ spec_one env fn arg_bndrs body (call_pat, rule_number)
 --        return ()
 
         -- Specialise the body
-        ; pprTraceM "body_subst_for" $ ppr (spec_occ) $$ ppr (sc_subst body_env)
+        -- ; pprTraceM "body_subst_for" $ ppr (spec_occ) $$ ppr (sc_subst body_env)
         ; (spec_usg, spec_body) <- scExpr body_env body
 
 --      ; pprTrace "done spec_one }" (ppr fn $$ ppr (scu_calls spec_usg)) $
@@ -1781,21 +1781,21 @@ spec_one env fn arg_bndrs body (call_pat, rule_number)
               rule       = mkRule this_mod True {- Auto -} True {- Local -}
                                   rule_name inline_act fn_name qvars pats rule_rhs
                            -- See Note [Transfer activation]
-        ; pprTraceM "spec_constr:"
-          ( text "fn" <+> ppr fn $$
-            text "spec_arity" <+> ppr spec_arity $$
-            text "spec_join_arity" <+> ppr spec_join_arity $$
-            text "spec_lam_args" <+> ppr spec_lam_args $$
-            text "call_pat" <+> ppr call_pat $$
-            text "spec_sig" <+> ppr spec_sig $$
-            text "spec_body" <+> ppr spec_body $$
-            text "unfolds" <+> ppr (map (\x -> if isId x then Just (idUnfolding x) else Nothing) spec_lam_args) $$
-            text "spec_call_args" <+> ppr spec_call_args $$
-            -- text "unfolds" <+> ppr (map idUnfolding spec_call_args) $$
-            text "spec_id" <+> ppr spec_id $$
-            text "spec_usg" <+> ppr spec_usg $$
-            text "extra_bndrs" <+> ppr extra_bndrs
-          )
+        -- ; pprTraceM "spec_constr:"
+        --   ( text "fn" <+> ppr fn $$
+        --     text "spec_arity" <+> ppr spec_arity $$
+        --     text "spec_join_arity" <+> ppr spec_join_arity $$
+        --     text "spec_lam_args" <+> ppr spec_lam_args $$
+        --     text "call_pat" <+> ppr call_pat $$
+        --     text "spec_sig" <+> ppr spec_sig $$
+        --     text "spec_body" <+> ppr spec_body $$
+        --     text "unfolds" <+> ppr (map (\x -> if isId x then Just (idUnfolding x) else Nothing) spec_lam_args) $$
+        --     text "spec_call_args" <+> ppr spec_call_args $$
+        --     -- text "unfolds" <+> ppr (map idUnfolding spec_call_args) $$
+        --     text "spec_id" <+> ppr spec_id $$
+        --     text "spec_usg" <+> ppr spec_usg $$
+        --     text "extra_bndrs" <+> ppr extra_bndrs
+        --   )
         ; return (spec_usg, OS { os_pat = call_pat, os_rule = rule
                                , os_id = spec_id
                                , os_rhs = spec_rhs }) }
@@ -1861,7 +1861,7 @@ calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
           v'
             | isId v
             , isStrUsedDmd d && not (isEvaldUnfolding (idUnfolding v))
-            = pprTrace "set_spec_unf_" (ppr v) $
+            = -- pprTrace "set_spec_unf_" (ppr v) $
               v `setStrUnfolding` MarkedStrict `setIdDemandInfo` d
             | otherwise = setIdDemandInfo v d
 
@@ -2212,7 +2212,6 @@ callToPats :: ScEnv -> [ArgOcc] -> Call -> UniqSM (Maybe CallPat)
         -- The [CoreExpr] are the argument patterns for the rule
 callToPats env bndr_occs call@(Call fn args con_env)
   = do  { let in_scope = substInScope (sc_subst env)
-              Subst _ subst_map _ _ = (sc_subst env)
 
         ; pairs <- zipWith3M (argToPat env in_scope con_env) args bndr_occs (map (const NotMarkedStrict) args)
                    -- This zip trims the args to be no longer than
@@ -2243,17 +2242,16 @@ callToPats env bndr_occs call@(Call fn args con_env)
                 -- See Note [Shadowing] at the top
 
               (ktvs, ids)   = partition isTyVar qvars
-              qvars'        =
-                              pprTrace "callToPats"
-                                (ppr ids $$
-                                 ppr (map idUnfolding ids) $$
-                                 ppr args $$
-                                 text "pairs:" <+> ppr pairs' $$
-                                 text "pat_fvs" <+> ppr pat_fvs $$
-                                 text "isVal" <+> ppr (map (isValue con_env) (map Var ids)) $$
-                                 text "in_scope" <+> ppr in_scope_vars $$
-                                 text "subst_env" <+> ppr subst_map
-                                ) $
+              qvars'        = -- pprTrace "callToPats"
+                              --   (ppr ids $$
+                              --    ppr (map idUnfolding ids) $$
+                              --    ppr args $$
+                              --    text "pairs:" <+> ppr pairs' $$
+                              --    text "pat_fvs" <+> ppr pat_fvs $$
+                              --    text "isVal" <+> ppr (map (isValue con_env) (map Var ids)) $$
+                              --    text "in_scope" <+> ppr in_scope_vars $$
+                              --    text "subst_env" <+> ppr subst_map
+                              --   ) $
                               scopedSort ktvs ++ map sanitise ids
                 -- Order into kind variables, type variables, term variables
                 -- The kind of a type variable may mention a kind variable
@@ -2276,9 +2274,9 @@ callToPats env bndr_occs call@(Call fn args con_env)
                 $$ ppr call) $
           if interesting && isEmptyVarSet bad_covars
           then
-              pprTraceM "callToPatsOut" (
-                text "fun" <> ppr fn $$
-                ppr (CP { cp_qvars = qvars', cp_args = pats })) >>
+              -- pprTraceM "callToPatsOut" (
+              --   text "fun" <> ppr fn $$
+              --   ppr (CP { cp_qvars = qvars', cp_args = pats })) >>
                 return (Just (CP { cp_qvars = qvars', cp_args = pats }))
           else return Nothing }
 
@@ -2313,6 +2311,13 @@ argToPat _env _in_scope _val_env arg _arg_occ _arg_str
     -- pprTraceM "argToPatOut" (ppr res)
     return res
 
+argToPat1 :: ScEnv
+  -> InScopeSet
+  -> ValueEnv
+  -> Expr CoreBndr
+  -> ArgOcc
+  -> StrictnessMark
+  -> UniqSM (Bool, Expr CoreBndr)
 argToPat1 _env _in_scope _val_env arg@(Type {}) _arg_occ _arg_str
   = return (False, arg)
 
@@ -2376,7 +2381,13 @@ argToPat1 env in_scope val_env arg arg_occ _arg_str
   = do { let (ty_args, rest_args) = splitAtList (dataConUnivTyVars dc) args
              -- get bangs on cons
              con_str = dataConRepStrictness dc
-       ; prs <- zipWith3M (argToPat env in_scope val_env) rest_args arg_occs con_str
+             matched_str = match_vals con_str rest_args
+      --  ; pprTraceM "bangs" (ppr (length rest_args == length con_str) $$
+      --       ppr dc $$
+      --       ppr con_str $$
+      --       ppr rest_args $$
+      --       ppr (map isTypeArg rest_args))
+       ; prs <- zipWith3M (argToPat env in_scope val_env) rest_args arg_occs matched_str
        ; let args' = map snd prs :: [CoreArg]
        ; assert (length con_str == length rest_args) $ return ()
       --  ; assert (length con_str == length rest_args) $
@@ -2387,12 +2398,23 @@ argToPat1 env in_scope val_env arg arg_occ _arg_str
        ; return (True, mkConApp dc (ty_args ++ args')) }
   where
     mb_scrut dc = case arg_occ of
-                    ScrutOcc bs | Just occs <- lookupUFM bs dc
-                                -> Just (occs)  -- See Note [Reboxing]
-                    _other      | sc_force env || sc_keen env
-                                -> Just (repeat UnkOcc)
-                                | otherwise
-                                -> Nothing
+                ScrutOcc bs | Just occs <- lookupUFM bs dc
+                            -> Just (occs)  -- See Note [Reboxing]
+                _other      | sc_force env || sc_keen env
+                            -> Just (repeat UnkOcc)
+                            | otherwise
+                            -> Nothing
+    match_vals bangs (arg:args)
+      | isTypeArg arg
+      = NotMarkedStrict : match_vals bangs args
+      | (b:bs) <- bangs
+      = b : match_vals bs args
+    match_vals [] [] = []
+    match_vals as bs =
+        pprPanic "spec-constr:argToPat - Bangs don't match value arguments"
+            (text "arg:" <> ppr arg $$
+             text "remaining args:" <> ppr as $$
+             text "remaining bangs:" <> ppr bs)
 
   -- Check if the argument is a variable that
   --    (a) is used in an interesting way in the function body
