@@ -1264,7 +1264,7 @@ tidyDetails id rhs =
   in cbv_bndr
   where
     mkCbvMarks :: [Id] -> [StrictnessMark]
-    mkCbvMarks = map mkMark
+    mkCbvMarks = map mkMark . take (idArity id)
       where
         mkMark arg = if isEvaldUnfolding (idUnfolding arg) && (not $ isUnliftedType (idType arg))
           then MarkedStrict

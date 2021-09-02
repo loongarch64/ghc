@@ -1836,17 +1836,17 @@ calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
         --   (ppr bndrs_w_dmds $$ hang (text "pats") 2 (vcat $ (map ppr pats))) $
           -- set_arg_unf bndrs_w_dmds pats
 
-    -- I think this version is *very* wrong.
-    set_arg_unf :: [Var] -> [CoreExpr] -> [Var]
-    set_arg_unf vars [] = vars -- Partially saturated call
-    set_arg_unf (v:vs) (p:ps)
-      | isId v
-      , exprIsHNF p
-      , isBoxedRuntimeRep (idType v) -- No point to attach OtherCon unfoldings to e.g. I#
-      = setStrUnfolding v MarkedStrict : set_arg_unf vs ps
-      | otherwise
-      = v : set_arg_unf vs ps
-    set_arg_unf [] _pats = [] -- Oversatured call
+    -- -- I think this version is *very* wrong.
+    -- set_arg_unf :: [Var] -> [CoreExpr] -> [Var]
+    -- set_arg_unf vars [] = vars -- Partially saturated call
+    -- set_arg_unf (v:vs) (p:ps)
+    --   | isId v
+    --   , exprIsHNF p
+    --   , isBoxedRuntimeRep (idType v) -- No point to attach OtherCon unfoldings to e.g. I#
+    --   = setStrUnfolding v MarkedStrict : set_arg_unf vs ps
+    --   | otherwise
+    --   = v : set_arg_unf vs ps
+    -- set_arg_unf [] _pats = [] -- Oversatured call
 
     set_arg_info :: [Var] -> [Demand] -> [Var]
     set_arg_info [] _   = []
@@ -1862,11 +1862,11 @@ calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
               v `setStrUnfolding` MarkedStrict `setIdDemandInfo` d
             | otherwise = setIdDemandInfo v d
 
-    set_dmds :: [Var] -> [Demand] -> [Var]
-    set_dmds [] _   = []
-    set_dmds vs  [] = vs  -- Run out of demands
-    set_dmds (v:vs) ds@(d:ds') | isTyVar v = v                   : set_dmds vs ds
-                               | otherwise = setIdDemandInfo v d : set_dmds vs ds'
+    -- set_dmds :: [Var] -> [Demand] -> [Var]
+    -- set_dmds [] _   = []
+    -- set_dmds vs  [] = vs  -- Run out of demands
+    -- set_dmds (v:vs) ds@(d:ds') | isTyVar v = v                   : set_dmds vs ds
+    --                            | otherwise = setIdDemandInfo v d : set_dmds vs ds'
     dmd_env = go emptyVarEnv fn_dmds val_pats
 
     go :: DmdEnv -> [Demand] -> [CoreExpr] -> DmdEnv
@@ -2240,13 +2240,15 @@ callToPats env bndr_occs call@(Call fn args con_env)
 
               (ktvs, ids)   = partition isTyVar qvars
               qvars'        =
-                              -- pprTrace "callToPats"
-                              --   (ppr ids $$
-                              --    ppr (map idUnfolding ids) $$
-                              --    ppr args $$
-                              --    text "pairs:" <+> ppr pairs' $$
-                              --    text "isVal" <+> ppr (map (isValue con_env) (map Var ids))
-                              --   ) $
+                              pprTrace "callToPats"
+                                (ppr ids $$
+                                 ppr (map idUnfolding ids) $$
+                                 ppr args $$
+                                 text "pairs:" <+> ppr pairs' $$
+                                 text "pat_fvs" <+> ppr pat_fvs $$
+                                 text "isVal" <+> ppr (map (isValue con_env) (map Var ids)) $$
+                                 text "in_scope" <+> ppr in_scope_vars
+                                ) $
                               scopedSort ktvs ++ map sanitise ids
                 -- Order into kind variables, type variables, term variables
                 -- The kind of a type variable may mention a kind variable
@@ -2295,10 +2297,17 @@ argToPat :: ScEnv
 --              lvl7         --> (True, lvl7)      if lvl7 is bound
 --                                                 somewhere further out
 
-argToPat _env _in_scope _val_env arg@(Type {}) _arg_occ _arg_str
+argToPat _env _in_scope _val_env arg _arg_occ _arg_str
+  = do
+    pprTraceM "argToPatIn" (ppr arg)
+    !res <- argToPat1 _env _in_scope _val_env arg _arg_occ _arg_str
+    pprTraceM "argToPatOut" (ppr res)
+    return res
+
+argToPat1 _env _in_scope _val_env arg@(Type {}) _arg_occ _arg_str
   = return (False, arg)
 
-argToPat env in_scope val_env (Tick _ arg) arg_occ _arg_str
+argToPat1 env in_scope val_env (Tick _ arg) arg_occ _arg_str
   = argToPat env in_scope val_env arg arg_occ _arg_str
         -- Note [Tick annotations in call patterns]
         -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2307,7 +2316,7 @@ argToPat env in_scope val_env (Tick _ arg) arg_occ _arg_str
         -- ride roughshod over them all for now.
         --- See Note [Tick annotations in RULE matching] in GHC.Core.Rules
 
-argToPat env in_scope val_env (Let _ arg) arg_occ _arg_str
+argToPat1 env in_scope val_env (Let _ arg) arg_occ _arg_str
   = argToPat env in_scope val_env arg arg_occ _arg_str
         -- See Note [Matching lets] in "GHC.Core.Rules"
         -- Look through let expressions
@@ -2321,7 +2330,7 @@ argToPat env in_scope val_env (Case scrut _ _ [(_, _, rhs)]) arg_occ
   = argToPat env in_scope val_env rhs arg_occ
 -}
 
-argToPat env in_scope val_env (Cast arg co) arg_occ arg_str
+argToPat1 env in_scope val_env (Cast arg co) arg_occ arg_str
   | not (ignoreType env ty2)
   = do  { (interesting, arg') <- argToPat env in_scope val_env arg arg_occ arg_str
         ; if not interesting then
@@ -2351,7 +2360,7 @@ argToPat in_scope val_env arg arg_occ
 
   -- Check for a constructor application
   -- NB: this *precedes* the Var case, so that we catch nullary constrs
-argToPat env in_scope val_env arg arg_occ _arg_str
+argToPat1 env in_scope val_env arg arg_occ _arg_str
   | Just (ConVal (DataAlt dc) args) <- isValue val_env arg
   , not (ignoreDataCon env dc)        -- See Note [NoSpecConstr]
   , Just arg_occs <- mb_scrut dc
@@ -2383,7 +2392,7 @@ argToPat env in_scope val_env arg arg_occ _arg_str
   --         business of absence analysis, not SpecConstr.)
   --    (b) we know what its value is
   -- In that case it counts as "interesting"
-argToPat env in_scope val_env (Var v) arg_occ _arg_str
+argToPat1 env in_scope val_env (Var v) arg_occ _arg_str
   | sc_force env || case arg_occ of { ScrutOcc {} -> True
                                     ; UnkOcc      -> False
                                     ; NoOcc       -> False } -- (a)
@@ -2421,7 +2430,7 @@ argToPat env in_scope val_env (Var v) arg_occ _arg_str
 
   -- The default case: make a wild-card
   -- We use this for coercions too
-argToPat _env _in_scope _val_env arg _arg_occ arg_str
+argToPat1 _env _in_scope _val_env arg _arg_occ arg_str
   = wildCardPat (exprType arg) arg_str
 
 -- We want the given id to be passed call-by-value if it's MarkedStrict.
