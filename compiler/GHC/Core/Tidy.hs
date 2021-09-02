@@ -20,6 +20,7 @@ import GHC.Core.Type
 import GHC.Core.DataCon
 
 import GHC.Core.Seq ( seqUnfolding )
+import GHC.Core.Opt.Arity
 import GHC.Types.Id
 import GHC.Types.Id.Info
 import GHC.Types.Demand ( zapDmdEnvSig )
@@ -34,6 +35,9 @@ import GHC.Types.SrcLoc
 import GHC.Types.Tickish
 import GHC.Data.Maybe
 import Data.List (mapAccumL)
+
+import GHC.Utils.Trace
+import GHC.Utils.Outputable
 
 {-
 ************************************************************************
@@ -73,8 +77,9 @@ tidyBindDetails id rhs =
       cbv_bndr = setIdCbvMarks id cbv_marks
   in cbv_bndr
   where
+    -- Only covered actually strict arguments.
     mkCbvMarks :: [Id] -> [StrictnessMark]
-    mkCbvMarks = map mkMark . take (idArity id)
+    mkCbvMarks = reverse . dropWhile (not . isMarkedStrict) .  reverse . map mkMark
       where
         mkMark arg = if isEvaldUnfolding (idUnfolding arg) && (not $ isUnliftedType (idType arg))
           then MarkedStrict
@@ -86,7 +91,7 @@ tidyExpr env (Var v)       = Var (tidyVarOcc env v)
 tidyExpr env (Type ty)     = Type (tidyType env ty)
 tidyExpr env (Coercion co) = Coercion (tidyCo env co)
 tidyExpr _   (Lit lit)     = Lit lit
-tidyExpr env (App f a)     = App (tidyExpr env f) (tidyExpr env a)
+tidyExpr env (App f a)     = tidyApp env (tidyExpr env f) a
 tidyExpr env (Tick t e)    = Tick (tidyTickish env t) (tidyExpr env e)
 tidyExpr env (Cast e co)   = Cast (tidyExpr env e) (tidyCo env co)
 
@@ -102,6 +107,19 @@ tidyExpr env (Case e b ty alts)
 tidyExpr env (Lam b e)
   = tidyBndr env b      =: \ (env', b) ->
     Lam b (tidyExpr env' e)
+
+------------  Applications  -------------------
+tidyApp :: TidyEnv -> CoreExpr -> CoreExpr -> Expr CoreBndr
+tidyApp env (Var tidy_fun) arg_expr
+  | Just marks <- idCbvMarks_maybe tidy_fun
+  , app <- (App (Var tidy_fun) arg_expr)
+  , (_fun, args) <- collectArgs (App (Var tidy_fun) arg_expr)
+  , n_marks <- length marks
+  , n_marks  < length args
+  = let expanded = etaExpand n_marks app
+  in pprTrace "tidyAppExpanded" (ppr app) $ tidyExpr env expanded
+
+tidyApp env f a = App f (tidyExpr env a)
 
 ------------  Case alternatives  --------------
 tidyAlt :: TidyEnv -> CoreAlt -> CoreAlt
@@ -204,7 +222,6 @@ tidyLetBndr rec_tidy_env env@(tidy_env, var_env) id
         details  = idDetails id
         id'      = mkLocalVar details name' mult' ty' new_info
         var_env' = extendVarEnv var_env id id'
-
         -- Note [Tidy IdInfo]
         -- We need to keep around any interesting strictness and
         -- demand info because later on we may need to use it when

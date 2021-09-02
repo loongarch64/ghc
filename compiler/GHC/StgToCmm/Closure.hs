@@ -611,9 +611,9 @@ getCallMethod opts name _ (LFUnknown might_be_a_function) n_args _v_args _cg_loc
       EnterIt   -- Not a function
 
 -- TODO: Redundant with above match?
-getCallMethod _ name _ (LFUnknown False) n_args _v_args _cg_loc _self_loop_info _appEnterInfo
-  = assertPpr (n_args == 0) (ppr name <+> ppr n_args)
-    EnterIt -- Not a function
+-- getCallMethod _ name _ (LFUnknown False) n_args _v_args _cg_loc _self_loop_info _appEnterInfo
+--   = assertPpr (n_args == 0) (ppr name <+> ppr n_args)
+--     EnterIt -- Not a function
 
 getCallMethod _ _name _ LFLetNoEscape _n_args _v_args (LneLoc blk_id lne_regs)
               _self_loop_info _appEnterInfo

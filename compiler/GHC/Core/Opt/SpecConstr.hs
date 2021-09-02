@@ -1744,6 +1744,7 @@ spec_one env fn arg_bndrs body (call_pat, rule_number)
 --        return ()
 
         -- Specialise the body
+        ; pprTraceM "body_subst_for" $ ppr (spec_occ) $$ ppr (sc_subst body_env)
         ; (spec_usg, spec_body) <- scExpr body_env body
 
 --      ; pprTrace "done spec_one }" (ppr fn $$ ppr (scu_calls spec_usg)) $
@@ -1780,19 +1781,21 @@ spec_one env fn arg_bndrs body (call_pat, rule_number)
               rule       = mkRule this_mod True {- Auto -} True {- Local -}
                                   rule_name inline_act fn_name qvars pats rule_rhs
                            -- See Note [Transfer activation]
-        -- ; pprTraceM "spec_constr:"
-        --   ( text "fn" <+> ppr fn $$
-        --     text "spec_lam_args" <+> ppr spec_lam_args $$
-        --     text "call_pat" <+> ppr call_pat $$
-        --     text "spec_sig" <+> ppr spec_sig $$
-        --     text "spec_body" <+> ppr spec_body $$
-        --     text "unfolds" <+> ppr (map idUnfolding spec_lam_args) $$
-        --     text "spec_call_args" <+> ppr spec_call_args $$
-        --     text "unfolds" <+> ppr (map idUnfolding spec_call_args) $$
-        --     text "spec_id" <+> ppr spec_id $$
-        --     text "spec_usg" <+> ppr spec_usg $$
-        --     text "extra_bndrs" <+> ppr extra_bndrs
-        --   )
+        ; pprTraceM "spec_constr:"
+          ( text "fn" <+> ppr fn $$
+            text "spec_arity" <+> ppr spec_arity $$
+            text "spec_join_arity" <+> ppr spec_join_arity $$
+            text "spec_lam_args" <+> ppr spec_lam_args $$
+            text "call_pat" <+> ppr call_pat $$
+            text "spec_sig" <+> ppr spec_sig $$
+            text "spec_body" <+> ppr spec_body $$
+            text "unfolds" <+> ppr (map (\x -> if isId x then Just (idUnfolding x) else Nothing) spec_lam_args) $$
+            text "spec_call_args" <+> ppr spec_call_args $$
+            -- text "unfolds" <+> ppr (map idUnfolding spec_call_args) $$
+            text "spec_id" <+> ppr spec_id $$
+            text "spec_usg" <+> ppr spec_usg $$
+            text "extra_bndrs" <+> ppr extra_bndrs
+          )
         ; return (spec_usg, OS { os_pat = call_pat, os_rule = rule
                                , os_id = spec_id
                                , os_rhs = spec_rhs }) }
@@ -2209,6 +2212,7 @@ callToPats :: ScEnv -> [ArgOcc] -> Call -> UniqSM (Maybe CallPat)
         -- The [CoreExpr] are the argument patterns for the rule
 callToPats env bndr_occs call@(Call fn args con_env)
   = do  { let in_scope = substInScope (sc_subst env)
+              Subst _ subst_map _ _ = (sc_subst env)
 
         ; pairs <- zipWith3M (argToPat env in_scope con_env) args bndr_occs (map (const NotMarkedStrict) args)
                    -- This zip trims the args to be no longer than
@@ -2247,7 +2251,8 @@ callToPats env bndr_occs call@(Call fn args con_env)
                                  text "pairs:" <+> ppr pairs' $$
                                  text "pat_fvs" <+> ppr pat_fvs $$
                                  text "isVal" <+> ppr (map (isValue con_env) (map Var ids)) $$
-                                 text "in_scope" <+> ppr in_scope_vars
+                                 text "in_scope" <+> ppr in_scope_vars $$
+                                 text "subst_env" <+> ppr subst_map
                                 ) $
                               scopedSort ktvs ++ map sanitise ids
                 -- Order into kind variables, type variables, term variables
@@ -2270,7 +2275,11 @@ callToPats env bndr_occs call@(Call fn args con_env)
               ( text "SpecConstr: bad covars:" <+> ppr bad_covars
                 $$ ppr call) $
           if interesting && isEmptyVarSet bad_covars
-          then return (Just (CP { cp_qvars = qvars', cp_args = pats }))
+          then
+              pprTraceM "callToPatsOut" (
+                text "fun" <> ppr fn $$
+                ppr (CP { cp_qvars = qvars', cp_args = pats })) >>
+                return (Just (CP { cp_qvars = qvars', cp_args = pats }))
           else return Nothing }
 
     -- argToPat takes an actual argument, and returns an abstracted
@@ -2299,9 +2308,9 @@ argToPat :: ScEnv
 
 argToPat _env _in_scope _val_env arg _arg_occ _arg_str
   = do
-    pprTraceM "argToPatIn" (ppr arg)
+    -- pprTraceM "argToPatIn" (ppr arg)
     !res <- argToPat1 _env _in_scope _val_env arg _arg_occ _arg_str
-    pprTraceM "argToPatOut" (ppr res)
+    -- pprTraceM "argToPatOut" (ppr res)
     return res
 
 argToPat1 _env _in_scope _val_env arg@(Type {}) _arg_occ _arg_str

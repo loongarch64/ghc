@@ -69,7 +69,39 @@ The idea is simple:
 
 This is described in detail in Note [Strict field invariant].
 
+Note [Partially applied workers]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Sometimes we will get a function f of the form
+    -- Arity 1
+    f :: Dict a -> a -> b -> (c -> d)
+    f dict a b = case dict of
+        C m1 m2 -> m1 a b
+
+Which will result in a W/W split along the lines of
+    -- Arity 1
+    f :: Dict a -> a -> b -> (c -> d)
+    f dict a = case dict of
+        C m1 m2 -> $wf m1 a b
+
+    -- Arity 4
+    $wf :: (a -> b -> d -> c) -> a -> b -> c -> d
+    $wf m1 a b c = m1 a b c
+
+It's notable that the worker is called *undersatured* in the wrapper.
+At runtime what happens is that the wrapper will allocate a PAP which
+once fully applied will call the worker. And all is fine.
+
+But what about a strict worker! Well the function returned by `f` will
+be a unknown call, so we lose the ability to enfore the invariant that
+cbv marked arguments from StictWorkerId's are actually properly tagged
+as the annotations will be unavailable at the (unknown) call site.
+
+So what we need to do is build an explicit wrapper around the worker
+which covers at least all the unlifted arguments.
+
 -}
+
+
 
 
 --------------------------------
@@ -350,26 +382,31 @@ rewriteApp _ (StgApp _nodeId f args)
     -- = undefined
     | Just marks <- idCbvMarks_maybe f
     -- , pprTrace "marks" (ppr f $$ ppr marks) True
+    -- , length marks <= length args
     , assert (length marks <= length args) True
     , any isMarkedStrict marks
     = do
-        when (length marks /= length args) $ do
-            pprTraceM "unequal arg/mark length" (ppr f <+> ppr args $$ text "marks:" <> ppr marks)
         argTags <- mapM isArgTagged args
         let argInfo = zipWith3 ((,,)) args (marks++repeat NotMarkedStrict)  argTags :: [(StgArg, StrictnessMark, Bool)]
-            -- untagged cbv argument positions
 
+            -- untagged cbv argument positions
             cbvArgInfo = filter (\x -> sndOf3 x == MarkedStrict && thdOf3 x == False) argInfo
             cbvArgIds = [x | StgVarArg x <- map fstOf3 cbvArgInfo] :: [Id]
-        -- pprTraceM "markArgInfo" (ppr f $$ ppr argInfo)
-        -- pprTraceM "rewriteApp" (ppr f <+> ppr args $$
-        --     ppr(marks,argTags) $$
-        --     text "evalArgs:" <> ppr cbvArgIds )
         mkSeqs args cbvArgIds (\cbv_args -> StgApp MayEnter f cbv_args)
-        -- return $ StgApp MayEnter f args
-    -- extInfo MaybeEnter        = StgSyn.MayEnter
-    -- extInfo NoValue          = StgSyn.MayEnter
-    -- extInfo UndetEnterInfo    = StgSyn.MayEnter
+    -- | Just marks <- idCbvMarks_maybe f
+    -- , n_marks > n_args
+    -- = do
+    --     let n_extra = n_marks - n_args
+    --         marks_extra = dropList args marks
+    --         map mkId
+    --     return ()
+    -- where
+    --     n_args = length args
+    --     n_marks = length marks
+    --     arg_tys ty
+    --         | Just (_m, arg_ty, res_ty) <- splitFunTy_maybe ty
+    --         = undefined
+    --         | otherwise = []
 
 rewriteApp _ (StgApp _ f args) = return $ StgApp MayEnter f args
 rewriteApp _ _ = panic "Impossible"

@@ -1264,7 +1264,9 @@ tidyDetails id rhs =
   in cbv_bndr
   where
     mkCbvMarks :: [Id] -> [StrictnessMark]
-    mkCbvMarks = map mkMark . take (idArity id)
+    mkCbvMarks args =
+      -- Only covered actually strict arguments.
+      reverse . dropWhile (not . isMarkedStrict) .  reverse . map mkMark $ args
       where
         mkMark arg = if isEvaldUnfolding (idUnfolding arg) && (not $ isUnliftedType (idType arg))
           then MarkedStrict
