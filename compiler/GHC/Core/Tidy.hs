@@ -87,7 +87,9 @@ tidyBind env (Rec prs)
 -- * tidyBind for local bindings.
 -- Not that we *have* to look at the untidied rhs.
 -- During tidying some knot-tying occurs which can blow up
--- if we look at the types of the arguments. But that's ok.
+-- if we look at the types of the arguments. But that's ok
+-- we only check if the manifest lambdas have OtherCon unfoldings
+-- and these remain valid post tidy.
 
 
 tidyCbvInfo :: HasCallStack => Id -> CoreExpr -> Id
@@ -105,12 +107,14 @@ tidyCbvInfo id rhs =
         | valid_unlifted_worker val_args
         -- Avoid retaining the original rhs
         = cbv_marks `seqList` setIdCbvMarks id cbv_marks
-        | otherwise = id
+        | otherwise =
+          pprTraceDebug "tidyCbvInfo: Worker seems to take unboxed tuple/sum types!" (ppr id <+> ppr rhs) id
   in cbv_bndr
   where
     -- Workers don't get unboxed tuples/sums so we can afford to be conservative.
     -- This means we don't have to consider unarise when matching marks with args.
     valid_unlifted_worker args =
+      pprTrace "valid_unlifted" (ppr id $$ ppr args) $
       not $ (any isUnboxedTupleThing args)
     isUnboxedTupleThing id =
       let ty = idType id
@@ -129,7 +133,7 @@ tidyExpr env (Var v)       = Var (tidyVarOcc env v)
 tidyExpr env (Type ty)     = Type (tidyType env ty)
 tidyExpr env (Coercion co) = Coercion (tidyCo env co)
 tidyExpr _   (Lit lit)     = Lit lit
-tidyExpr env (App f a)     = tidyApp env (tidyExpr env f) a
+tidyExpr env (App f a)     = App (tidyExpr env f) (tidyExpr env a)
 tidyExpr env (Tick t e)    = Tick (tidyTickish env t) (tidyExpr env e)
 tidyExpr env (Cast e co)   = Cast (tidyExpr env e) (tidyCo env co)
 
@@ -145,19 +149,6 @@ tidyExpr env (Case e b ty alts)
 tidyExpr env (Lam b e)
   = tidyBndr env b      =: \ (env', b) ->
     Lam b (tidyExpr env' e)
-
-------------  Applications  -------------------
-tidyApp :: TidyEnv -> CoreExpr -> CoreExpr -> Expr CoreBndr
-tidyApp env (Var tidy_fun) arg_expr
-  | Just marks <- idCbvMarks_maybe tidy_fun
-  , app <- (App (Var tidy_fun) arg_expr)
-  , (_fun, args) <- collectArgs (App (Var tidy_fun) arg_expr)
-  , n_marks <- length marks
-  , n_marks  < length args
-  = let expanded = etaExpand n_marks app
-  in pprTrace "tidyAppExpanded" (ppr app) $ tidyExpr env expanded
-
-tidyApp env f a = App f (tidyExpr env a)
 
 ------------  Case alternatives  --------------
 tidyAlt :: TidyEnv -> CoreAlt -> CoreAlt
