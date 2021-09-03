@@ -967,6 +967,7 @@ cgIdApp strict fun_id args = do
 
         -- A value infered to be in WHNF, so we can just return it.
         InferedReturnIt
+          -- | True -> cgIdApp MayEnter fun_id args
           | isVoidTy (idType fun_id) -> trace >> emitReturn []
           | otherwise                -> trace >> assertTag >>
                                         emitReturn [fun]

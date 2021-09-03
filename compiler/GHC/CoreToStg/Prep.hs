@@ -1428,11 +1428,11 @@ with this another way, as described in Note [Primop wrappers] in GHC.Builtin.Pri
 
 maybeSaturate :: Id -> CpeApp -> Int -> UniqSM CpeRhs
 maybeSaturate fn expr n_args
-  | isJust marks
-  , pprTrace "maybeSat" (text "fn:" <> ppr fn $$ text "exp:" <> ppr expr $$ text "n_args:" <> ppr n_args $$
-          text "marks:" <> ppr marks $$
-          text "undermarked:" <> ppr undermarked) False
-  = undefined
+  -- | isJust marks
+  -- , pprTrace "maybeSat" (text "fn:" <> ppr fn $$ text "exp:" <> ppr expr $$ text "n_args:" <> ppr n_args $$
+  --         text "marks:" <> ppr marks $$
+  --         text "undermarked:" <> ppr undermarked) False
+  -- = undefined
   | hasNoBinding fn        -- There's no binding
   = return sat_expr
 
@@ -1530,10 +1530,11 @@ tryEtaReducePrep bndrs expr@(App _ _)
   , not (any (`elemVarSet` fvs_remaining) bndrs)
   , exprIsHNF remaining_expr   -- Don't turn value into a non-value
                                -- else the behaviour with 'seq' changes
-  = pprTrace "prep-reduce" (
-      text "reduced:" <> ppr remaining_expr $$
-      ppr (remaining_args)
-      ) $
+  =
+    -- pprTrace "prep-reduce" (
+    --   text "reduced:" <> ppr remaining_expr $$
+    --   ppr (remaining_args)
+    --   ) $
     Just remaining_expr
   where
     (f, args) = collectArgs expr

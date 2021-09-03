@@ -10,7 +10,7 @@ The code for *top-level* bindings is in GHC.Iface.Tidy.
 
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 module GHC.Core.Tidy (
-        tidyExpr, tidyRules, tidyUnfolding
+        tidyExpr, tidyRules, tidyUnfolding, tidyCbvInfo
     ) where
 
 import GHC.Prelude
@@ -34,10 +34,12 @@ import GHC.Types.Name hiding (tidyNameOcc)
 import GHC.Types.SrcLoc
 import GHC.Types.Tickish
 import GHC.Data.Maybe
+import GHC.Utils.Misc
 import Data.List (mapAccumL)
 
 import GHC.Utils.Trace
 import GHC.Utils.Outputable
+import GHC.Stack
 
 {-
 ************************************************************************
@@ -52,20 +54,45 @@ tidyBind :: TidyEnv
          ->  (TidyEnv, CoreBind)
 
 tidyBind env (NonRec bndr rhs)
-  = tidyLetBndr env env bndr =: \ (env', bndr') ->
-    (env', NonRec bndr' (tidyExpr env' rhs))
+  = -- pprTrace "tidyBindNonRec" (ppr bndr) $
+    let (env', bndr') = tidyLetBndr env env bndr
+        tidy_rhs = (tidyExpr env' rhs)
+    in (env', NonRec (tidyCbvInfo bndr' rhs) tidy_rhs)
 
 tidyBind env (Rec prs)
-  = let
-       cbv_bndrs = map ((\(bnd,rhs) -> tidyBindDetails bnd rhs)) prs
+  = -- pprTrace "tidyBindRec" (ppr $ map fst prs) $
+    let
+       cbv_bndrs = map ((\(bnd,rhs) -> tidyCbvInfo bnd rhs)) prs
        (_bndrs, rhss)  = unzip prs
        (env', bndrs') = mapAccumL (tidyLetBndr env') env cbv_bndrs
     in
     map (tidyExpr env') rhss =: \ rhss' ->
     (env', Rec (zip bndrs' rhss'))
 
-tidyBindDetails :: Id -> CoreExpr -> Id
-tidyBindDetails id rhs =
+
+-- Note [Attaching CBV Marks to ids]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- During tidy we convert OtherCon[]
+-- unfoldings on argument ids to functions
+-- to CBV marks on the functions binder itself
+-- for code generation purposes.
+
+-- The actual logic is in tidyCbvInfo and takes:
+-- * The function id:
+-- * The functions rhs
+
+-- And gives us back the function annotated with the marks.
+-- We call it in:
+-- * tidyTopPair for top level bindings
+-- * tidyBind for local bindings.
+-- Not that we *have* to look at the untidied rhs.
+-- During tidying some knot-tying occurs which can blow up
+-- if we look at the types of the arguments. But that's ok.
+
+
+tidyCbvInfo :: HasCallStack => Id -> CoreExpr -> Id
+tidyCbvInfo id rhs =
+  -- pprTrace "tidyBindDetail" (ppr id $$ ppr ((prettyCallStack callStack))) $
   -- For a binding we:
   -- * Look at the args
   -- * Mark any with Unf=OtherCon[] as cbv
@@ -76,7 +103,8 @@ tidyBindDetails id rhs =
       cbv_marks = new_marks
       cbv_bndr
         | valid_unlifted_worker val_args
-        = setIdCbvMarks id cbv_marks
+        -- Avoid retaining the original rhs
+        = cbv_marks `seqList` setIdCbvMarks id cbv_marks
         | otherwise = id
   in cbv_bndr
   where

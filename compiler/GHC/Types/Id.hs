@@ -640,8 +640,7 @@ asJoinId id arity = warnPprTrace (not (isLocalId id))
                          (text "global id being marked as join var:" <+> ppr id) $
                     warnPprTrace (not (is_vanilla_or_join id))
                          (ppr id <+> pprIdDetails (idDetails id)) $
-                    -- id `setIdDetails` JoinId arity (idCbvMarks_maybe id)
-                    id `setIdDetails` JoinId arity Nothing
+                    id `setIdDetails` JoinId arity (idCbvMarks_maybe id)
   where
     is_vanilla_or_join id = case Var.idDetails id of
                               VanillaId -> True
@@ -754,9 +753,7 @@ setIdCbvMarks id marks
       case idDetails id of
         -- good ol (likely worker) function
         VanillaId ->      id `setIdDetails` (StrictWorkerId trimmedMarks)
-        -- Join points are tricky, as they are only ever called with their join arity.
-        -- JoinId arity _ -> id `setIdDetails` (JoinId arity (Just trimmedMarks))
-        JoinId arity _ -> id `setIdDetails` (JoinId arity Nothing)
+        JoinId arity _ -> id `setIdDetails` (JoinId arity (Just trimmedMarks))
         -- Updating an existing strict worker.
         StrictWorkerId _ -> id `setIdDetails` (StrictWorkerId trimmedMarks)
         RecSelId{} -> id
@@ -767,7 +764,8 @@ setIdCbvMarks id marks
 
     where
       -- (Currently) no point in passing args beyond the arity unlifted.
-      -- The function might only be applied to arity args by the wrapper
+      -- We would have to eta expand all call sites to (length marks).
+      -- Perhaps that's sensible be for now be conservative.
       trimmedMarks = take (idArity id) marks
       removeMarks details = case details of
         JoinId arity (Just _) -> Just $ JoinId arity Nothing

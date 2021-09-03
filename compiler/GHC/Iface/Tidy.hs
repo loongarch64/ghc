@@ -1242,35 +1242,12 @@ tidyTopPair uf_opts show_unfold rhs_tidy_env name' (bndr, rhs)
   = (bndr1, rhs1)
   where
     bndr1    = mkGlobalId details name' ty' idinfo'
-                `tidyDetails` rhs1
+                `tidyCbvInfo` rhs
     details  = idDetails bndr   -- Preserve the IdDetails
     ty'      = tidyTopType (idType bndr)
     rhs1     = tidyExpr rhs_tidy_env rhs
     idinfo'  = tidyTopIdInfo uf_opts rhs_tidy_env name' rhs rhs1 (idInfo bndr)
                              show_unfold
-    -- TODO: Should we perhaps just set CbvMarks here?
-
-tidyDetails :: Id -> CoreExpr -> Id
-tidyDetails id rhs =
-  -- For a binding we:
-  -- * Look at the args
-  -- * Mark any with Unf=OtherCon[] as cbv
-  -- * Potentially combine it with existing marks (from ww)
-  -- Update the id
-  let (_,val_args,_body) = collectTyAndValBinders rhs
-      new_marks = mkCbvMarks val_args
-      cbv_marks = new_marks
-      cbv_bndr = setIdCbvMarks id cbv_marks
-  in cbv_bndr
-  where
-    mkCbvMarks :: [Id] -> [StrictnessMark]
-    mkCbvMarks args =
-      -- Only covered actually strict arguments.
-      reverse . dropWhile (not . isMarkedStrict) .  reverse . map mkMark $ args
-      where
-        mkMark arg = if isEvaldUnfolding (idUnfolding arg) && (not $ isUnliftedType (idType arg))
-          then MarkedStrict
-          else NotMarkedStrict
 
 -- tidyTopIdInfo creates the final IdInfo for top-level
 -- binders.  The delicate piece:
