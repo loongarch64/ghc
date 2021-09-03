@@ -55,9 +55,10 @@ tidyBind :: TidyEnv
 
 tidyBind env (NonRec bndr rhs)
   = -- pprTrace "tidyBindNonRec" (ppr bndr) $
-    let (env', bndr') = tidyLetBndr env env bndr
+    let cbv_bndr = (tidyCbvInfo bndr rhs)
+        (env', bndr') = tidyLetBndr env env cbv_bndr
         tidy_rhs = (tidyExpr env' rhs)
-    in (env', NonRec (tidyCbvInfo bndr' rhs) tidy_rhs)
+    in (env', NonRec bndr' tidy_rhs)
 
 tidyBind env (Rec prs)
   = -- pprTrace "tidyBindRec" (ppr $ map fst prs) $
@@ -114,7 +115,7 @@ tidyCbvInfo id rhs =
     -- Workers don't get unboxed tuples/sums so we can afford to be conservative.
     -- This means we don't have to consider unarise when matching marks with args.
     valid_unlifted_worker args =
-      pprTrace "valid_unlifted" (ppr id $$ ppr args) $
+      -- pprTrace "valid_unlifted" (ppr id $$ ppr args) $
       not $ (any isUnboxedTupleThing args)
     isUnboxedTupleThing id =
       let ty = idType id
