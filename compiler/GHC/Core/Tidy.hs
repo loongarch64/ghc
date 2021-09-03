@@ -74,9 +74,19 @@ tidyBindDetails id rhs =
   let (_,val_args,_body) = collectTyAndValBinders rhs
       new_marks = mkCbvMarks val_args
       cbv_marks = new_marks
-      cbv_bndr = setIdCbvMarks id cbv_marks
+      cbv_bndr
+        | valid_unlifted_worker val_args
+        = setIdCbvMarks id cbv_marks
+        | otherwise = id
   in cbv_bndr
   where
+    -- Workers don't get unboxed tuples/sums so we can afford to be conservative.
+    -- This means we don't have to consider unarise when matching marks with args.
+    valid_unlifted_worker args =
+      not $ (any isUnboxedTupleThing args)
+    isUnboxedTupleThing id =
+      let ty = idType id
+      in isUnboxedTupleType ty || isUnboxedSumType ty
     -- Only covered actually strict arguments.
     mkCbvMarks :: [Id] -> [StrictnessMark]
     mkCbvMarks = reverse . dropWhile (not . isMarkedStrict) .  reverse . map mkMark

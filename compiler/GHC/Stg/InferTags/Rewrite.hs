@@ -385,7 +385,10 @@ rewriteApp _ (StgApp _nodeId f args)
     -- , length marks <= length args
     , assert (length marks <= length args) True
     , any isMarkedStrict marks
-    = do
+    = unliftArg marks
+
+    where
+      unliftArg marks = do
         argTags <- mapM isArgTagged args
         let argInfo = zipWith3 ((,,)) args (marks++repeat NotMarkedStrict)  argTags :: [(StgArg, StrictnessMark, Bool)]
 
@@ -393,20 +396,7 @@ rewriteApp _ (StgApp _nodeId f args)
             cbvArgInfo = filter (\x -> sndOf3 x == MarkedStrict && thdOf3 x == False) argInfo
             cbvArgIds = [x | StgVarArg x <- map fstOf3 cbvArgInfo] :: [Id]
         mkSeqs args cbvArgIds (\cbv_args -> StgApp MayEnter f cbv_args)
-    -- | Just marks <- idCbvMarks_maybe f
-    -- , n_marks > n_args
-    -- = do
-    --     let n_extra = n_marks - n_args
-    --         marks_extra = dropList args marks
-    --         map mkId
-    --     return ()
-    -- where
-    --     n_args = length args
-    --     n_marks = length marks
-    --     arg_tys ty
-    --         | Just (_m, arg_ty, res_ty) <- splitFunTy_maybe ty
-    --         = undefined
-    --         | otherwise = []
+
 
 rewriteApp _ (StgApp _ f args) = return $ StgApp MayEnter f args
 rewriteApp _ _ = panic "Impossible"
