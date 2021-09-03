@@ -1530,19 +1530,26 @@ tryEtaReducePrep bndrs expr@(App _ _)
   , not (any (`elemVarSet` fvs_remaining) bndrs)
   , exprIsHNF remaining_expr   -- Don't turn value into a non-value
                                -- else the behaviour with 'seq' changes
-  = pprTraceIt "prep-reduce" $ Just remaining_expr
+  = pprTrace "prep-reduce" (
+      text "reduced:" <> ppr remaining_expr $$
+      ppr (remaining_args)
+      ) $
+    Just remaining_expr
   where
     (f, args) = collectArgs expr
     remaining_expr = mkApps f remaining_args
     fvs_remaining = exprFreeVars remaining_expr
     (remaining_args, last_args) = splitAt n_remaining args
     n_remaining = length args - length bndrs
+    n_remaining_vals = length $ filter (isRuntimeArg) remaining_args
 
     ok bndr (Var arg) = bndr == arg
     ok _    _         = False
 
     -- We can't eta reduce something which must be saturated.
-    ok_to_eta_reduce (Var f) = not (hasNoBinding f) && not (isLinearType (idType f)) && not (idCbvMarkArity f > n_remaining)
+    ok_to_eta_reduce (Var f) =  not (hasNoBinding f) &&
+                                not (isLinearType (idType f)) &&
+                                (idCbvMarkArity f <= n_remaining_vals)
     ok_to_eta_reduce _       = False -- Safe. ToDo: generalise
 
 
