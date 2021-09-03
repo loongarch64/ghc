@@ -976,7 +976,7 @@ cpeApp top_env expr
         go terminal as depth = (terminal, as, depth)
 
     cpe_app :: CorePrepEnv
-            -> CoreExpr
+            -> CoreExpr -- The thing we are calling
             -> [ArgInfo]
             -> Int
             -> UniqSM (Floats, CpeRhs)
@@ -1095,16 +1095,17 @@ cpeApp top_env expr
     rebuild_app
         :: CorePrepEnv
         -> [ArgInfo]                  -- The arguments (inner to outer)
-        -> CpeApp
+        -> CpeApp                     -- The function, presumably.
         -> Floats
         -> [Demand]
         -> UniqSM (CpeApp, Floats)
-    rebuild_app _ [] app floats ss
+    rebuild_app _env [] app floats ss
       = assert (null ss) -- make sure we used all the strictness info
         return (app, floats)
 
     rebuild_app env (a : as) fun' floats ss = case a of
 
+      -- We apply types as they come
       CpeApp (Type arg_ty)
         -> rebuild_app env as (App fun' (Type arg_ty')) floats ss
         where
@@ -1427,7 +1428,18 @@ with this another way, as described in Note [Primop wrappers] in GHC.Builtin.Pri
 
 maybeSaturate :: Id -> CpeApp -> Int -> UniqSM CpeRhs
 maybeSaturate fn expr n_args
+  | isJust marks
+  , pprTrace "maybeSat" (text "fn:" <> ppr fn $$ text "exp:" <> ppr expr $$ text "n_args:" <> ppr n_args $$
+          text "marks:" <> ppr marks $$
+          text "undermarked:" <> ppr undermarked) False
+  = undefined
   | hasNoBinding fn        -- There's no binding
+  = return sat_expr
+
+  -- TODO: I suppose we we don't need to if all strict marks
+  -- are covered by an argument.
+  | idCbvMarkArity fn > n_args
+  , not (isJoinId fn)
   = return sat_expr
 
   | otherwise
@@ -1436,6 +1448,8 @@ maybeSaturate fn expr n_args
     fn_arity     = idArity fn
     excess_arity = fn_arity - n_args
     sat_expr     = cpeEtaExpand excess_arity expr
+    marks = idCbvMarks_maybe fn
+    undermarked = fmap (\xs -> length xs > n_args) marks
 
 {-
 ************************************************************************
@@ -1516,7 +1530,7 @@ tryEtaReducePrep bndrs expr@(App _ _)
   , not (any (`elemVarSet` fvs_remaining) bndrs)
   , exprIsHNF remaining_expr   -- Don't turn value into a non-value
                                -- else the behaviour with 'seq' changes
-  = Just remaining_expr
+  = pprTraceIt "prep-reduce" $ Just remaining_expr
   where
     (f, args) = collectArgs expr
     remaining_expr = mkApps f remaining_args
@@ -1528,7 +1542,7 @@ tryEtaReducePrep bndrs expr@(App _ _)
     ok _    _         = False
 
     -- We can't eta reduce something which must be saturated.
-    ok_to_eta_reduce (Var f) = not (hasNoBinding f) && not (isLinearType (idType f))
+    ok_to_eta_reduce (Var f) = not (hasNoBinding f) && not (isLinearType (idType f)) && not (idCbvMarkArity f > n_remaining)
     ok_to_eta_reduce _       = False -- Safe. ToDo: generalise
 
 

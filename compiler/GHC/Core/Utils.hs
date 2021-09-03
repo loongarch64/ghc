@@ -2502,7 +2502,7 @@ tryEtaReduce bndrs body
     ok_fun _fun                = False
 
     ---------------
-    ok_fun_id fun = fun_arity fun >= incoming_arity
+    ok_fun_id fun = fun_arity fun >= incoming_arity && idCbvMarkArity fun < incoming_arity
 
     ---------------
     fun_arity fun             -- See Note [Arity care]

@@ -116,6 +116,7 @@ module GHC.Types.Id (
         setIdCprSig,
         setIdCbvMarks,
         idCbvMarks_maybe,
+        idCbvMarkArity,
 
         idDemandInfo,
         idDmdSig,
@@ -639,7 +640,8 @@ asJoinId id arity = warnPprTrace (not (isLocalId id))
                          (text "global id being marked as join var:" <+> ppr id) $
                     warnPprTrace (not (is_vanilla_or_join id))
                          (ppr id <+> pprIdDetails (idDetails id)) $
-                    id `setIdDetails` JoinId arity (idCbvMarks_maybe id)
+                    -- id `setIdDetails` JoinId arity (idCbvMarks_maybe id)
+                    id `setIdDetails` JoinId arity Nothing
   where
     is_vanilla_or_join id = case Var.idDetails id of
                               VanillaId -> True
@@ -747,13 +749,16 @@ setIdDemandInfo id dmd = modifyIdInfo (`setDemandInfo` dmd) id
 -- | If all marks are NotMarkedStrict we just set nothing.
 setIdCbvMarks :: Id -> [StrictnessMark] -> Id
 setIdCbvMarks id marks
-  | null marks                     = maybeModifyIdDetails (removeMarks $ idDetails id) id
   | not (any isMarkedStrict marks) = maybeModifyIdDetails (removeMarks $ idDetails id) id
   | otherwise =
       case idDetails id of
-        VanillaId -> id `setIdDetails` (StrictWorkerId marks)
-        JoinId arity _ -> id `setIdDetails` (JoinId arity (Just marks))
-        StrictWorkerId _ -> id `setIdDetails` (StrictWorkerId marks)
+        -- good ol (likely worker) function
+        VanillaId ->      id `setIdDetails` (StrictWorkerId trimmedMarks)
+        -- Join points are tricky, as they are only ever called with their join arity.
+        -- JoinId arity _ -> id `setIdDetails` (JoinId arity (Just trimmedMarks))
+        JoinId arity _ -> id `setIdDetails` (JoinId arity Nothing)
+        -- Updating an existing strict worker.
+        StrictWorkerId _ -> id `setIdDetails` (StrictWorkerId trimmedMarks)
         RecSelId{} -> id
         DFunId{} -> id
         _ -> pprTrace "setIdCbvMarks: Unable to set cbv marks for" (ppr id $$
@@ -761,6 +766,9 @@ setIdCbvMarks id marks
               text "idDetails:" <> ppr (idDetails id)) id
 
     where
+      -- (Currently) no point in passing args beyond the arity unlifted.
+      -- The function might only be applied to arity args by the wrapper
+      trimmedMarks = take (idArity id) marks
       removeMarks details = case details of
         JoinId arity (Just _) -> Just $ JoinId arity Nothing
         StrictWorkerId _ -> Just VanillaId
@@ -772,6 +780,11 @@ idCbvMarks_maybe id = case idDetails id of
   StrictWorkerId marks -> Just marks
   JoinId _arity marks  -> marks
   _                    -> Nothing
+
+-- Id must be called with at least this arity in order to allow arguments to
+-- be passed unlifted.
+idCbvMarkArity :: Id -> Arity
+idCbvMarkArity fn = maybe 0 length (idCbvMarks_maybe fn)
 
 setCaseBndrEvald :: StrictnessMark -> Id -> Id
 -- Used for variables bound by a case expressions, both the case-binder
