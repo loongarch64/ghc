@@ -3396,6 +3396,7 @@ fFlagsDeps = [
   flagSpec "unbox-strict-fields"              Opt_UnboxStrictFields,
   flagSpec "version-macros"                   Opt_VersionMacros,
   flagSpec "worker-wrapper"                   Opt_WorkerWrapper,
+  flagSpec "worker-wrapper-unlifted"          Opt_WorkerWrapperUnlifted,
   flagSpec "solve-constant-dicts"             Opt_SolveConstantDicts,
   flagSpec "catch-bottoms"                    Opt_CatchBottoms,
   flagSpec "alignment-sanitisation"           Opt_AlignmentSanitisation,

@@ -226,6 +226,7 @@ data GeneralFlag
    | Opt_WeightlessBlocklayout         -- ^ Layout based on last instruction per block.
    | Opt_CprAnal
    | Opt_WorkerWrapper
+   | Opt_WorkerWrapperUnlifted -- ^ Try to pass strict (boxed!) lifted arguments unlifted.
    | Opt_SolveConstantDicts
    | Opt_AlignmentSanitisation
    | Opt_CatchBottoms
@@ -443,6 +444,7 @@ optimisationFlags = EnumSet.fromList
    , Opt_WeightlessBlocklayout
    , Opt_CprAnal
    , Opt_WorkerWrapper
+   , Opt_WorkerWrapperUnlifted
    , Opt_SolveConstantDicts
    , Opt_CatchBottoms
    , Opt_IgnoreAsserts

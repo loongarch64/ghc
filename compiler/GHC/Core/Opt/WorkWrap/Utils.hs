@@ -143,6 +143,7 @@ data WwOpts
   , wo_fun_to_thunk      :: !Bool
   , wo_max_worker_args   :: !Int
   , wo_output_file       :: Maybe String
+  , wo_unlift_strict     :: !Bool -- If an argument is strict, pass it unlifted
   }
 
 initWwOpts :: DynFlags -> FamInstEnvs -> WwOpts
@@ -153,6 +154,7 @@ initWwOpts dflags fam_envs = MkWwOpts
   , wo_fun_to_thunk      = gopt Opt_FunToThunk dflags
   , wo_max_worker_args   = maxWorkerArgs dflags
   , wo_output_file       = outputFile dflags
+  , wo_unlift_strict     = gopt Opt_WorkerWrapperUnlifted dflags
   }
 
 type WwResult
@@ -610,9 +612,9 @@ data ArgOfInlineableFun
   deriving Eq
 
 -- | Unboxing strategy for strict arguments.
-wantToUnboxArg :: FamInstEnvs -> ArgOfInlineableFun -> Type -> Demand -> UnboxingDecision Demand
+wantToUnboxArg :: Bool -> FamInstEnvs -> ArgOfInlineableFun -> Type -> Demand -> UnboxingDecision Demand
 -- See Note [Which types are unboxed?]
-wantToUnboxArg fam_envs inlineable_flag ty dmd
+wantToUnboxArg unlift_strict fam_envs inlineable_flag ty dmd
   | isAbsDmd dmd
   = DropAbsent
 
@@ -630,7 +632,8 @@ wantToUnboxArg fam_envs inlineable_flag ty dmd
   , let cs' = addDataConStrictness dc cs
   = Unbox (DataConPatContext dc tc_args co) cs'
 
-  | isStrUsedDmd dmd
+  | unlift_strict
+  , isStrUsedDmd dmd
   = Unlift
 
   | otherwise
@@ -978,7 +981,7 @@ mkWWstr_one :: WwOpts
             -> StrictnessMark
             -> UniqSM (WorkerQuality, [Var], [StrictnessMark], CoreExpr -> CoreExpr, CoreExpr)
 mkWWstr_one opts inlineable_flag arg marked_cbv =
-  case wantToUnboxArg fam_envs inlineable_flag arg_ty arg_dmd of
+  case wantToUnboxArg (wo_unlift_strict opts) fam_envs inlineable_flag arg_ty arg_dmd of
     _ | isTyVar arg -> do_nothing
 
     DropAbsent

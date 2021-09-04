@@ -508,7 +508,7 @@ argCprType env arg_ty dmd = CprType 0 (go arg_ty dmd)
   where
     go ty dmd
       | Unbox (DataConPatContext { dcpc_dc = dc, dcpc_tc_args = tc_args }) ds
-          <- wantToUnboxArg (ae_fam_envs env) MaybeArgOfInlineableFun ty dmd
+          <- wantToUnboxArg False (ae_fam_envs env) MaybeArgOfInlineableFun ty dmd
       -- No existentials; see Note [Which types are unboxed?])
       -- Otherwise we'd need to call dataConRepInstPat here and thread a
       -- UniqSupply. So argCprType is a bit less aggressive than it could
