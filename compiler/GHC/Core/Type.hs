@@ -123,7 +123,7 @@ module GHC.Core.Type (
         isLiftedTypeKind, isUnliftedTypeKind, isBoxedTypeKind, pickyIsLiftedTypeKind,
         isLiftedRuntimeRep, isUnliftedRuntimeRep, isBoxedRuntimeRep,
         isLiftedLevity, isUnliftedLevity,
-        isUnliftedType, isBoxedType, mightBeUnliftedType, isUnboxedTupleType, isUnboxedSumType,
+        isUnliftedType, isBoxedType, mightBeUnliftedType, isUnboxedTupleType, isUnboxedSumType, isStateType,
         isAlgType, isDataFamilyAppType,
         isPrimitiveType, isStrictType,
         isLevityTy, isLevityVar,
@@ -2267,6 +2267,13 @@ isUnliftedType :: HasDebugCallStack => Type -> Bool
 isUnliftedType ty
   = not (isLiftedType_maybe ty `orElse`
          pprPanic "isUnliftedType" (ppr ty <+> dcolon <+> ppr (typeKind ty)))
+
+-- | State token type.
+isStateType :: Type -> Bool
+isStateType ty
+  = case tyConAppTyCon_maybe ty of
+        Just tycon -> tycon == statePrimTyCon
+        _          -> False
 
 -- | Returns:
 --

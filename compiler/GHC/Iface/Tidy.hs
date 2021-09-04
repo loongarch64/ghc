@@ -1239,11 +1239,12 @@ tidyTopPair :: UnfoldingOpts
         -- in the IdInfo of one early in the group
 
 tidyTopPair uf_opts show_unfold rhs_tidy_env name' (bndr, rhs)
-  = (bndr1, rhs1)
+  = -- pprTrace "tidyTop" (ppr name' <+> ppr details <+> ppr rhs) $
+    (bndr1, rhs1)
+
   where
     bndr1    = mkGlobalId details name' ty' idinfo'
-                `tidyCbvInfo` rhs
-    details  = idDetails bndr   -- Preserve the IdDetails
+    details  = idDetails (bndr `tidyCbvInfo` rhs)   -- Preserve the IdDetails
     ty'      = tidyTopType (idType bndr)
     rhs1     = tidyExpr rhs_tidy_env rhs
     idinfo'  = tidyTopIdInfo uf_opts rhs_tidy_env name' rhs rhs1 (idInfo bndr)

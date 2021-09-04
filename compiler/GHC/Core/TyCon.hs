@@ -2363,7 +2363,7 @@ setTcTyConKind tc              _    = pprPanic "setTcTyConKind" (ppr tc)
 -- True is safe. False means we're sure. Does only a quick check
 -- based on the TyCon's category.
 -- Precondition: The fully-applied TyCon has kind (TYPE blah)
-isTcLevPoly :: TyCon -> Bool
+isTcLevPoly :: HasDebugCallStack => TyCon -> Bool
 isTcLevPoly FunTyCon{}           = False
 isTcLevPoly (AlgTyCon { algTcParent = parent, algTcRhs = rhs })
   | UnboxedAlgTyCon _ <- parent

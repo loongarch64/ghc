@@ -750,6 +750,7 @@ setIdCbvMarks :: Id -> [StrictnessMark] -> Id
 setIdCbvMarks id marks
   | not (any isMarkedStrict marks) = maybeModifyIdDetails (removeMarks $ idDetails id) id
   | otherwise =
+      pprTrace "setMarks:" (ppr id <> text ":" <> ppr marks) $
       case idDetails id of
         -- good ol (likely worker) function
         VanillaId ->      id `setIdDetails` (StrictWorkerId trimmedMarks)
