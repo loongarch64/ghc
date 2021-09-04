@@ -54,7 +54,11 @@ import Data.List.NonEmpty ( NonEmpty(..) )
 -- | The 'RewriteM' monad is a wrapper around 'TcS' with a 'RewriteEnv'
 newtype RewriteM a
   = RewriteM { runRewriteM :: RewriteEnv -> TcS a }
-  deriving (Functor)
+--   deriving (Functor)
+
+-- AMG TODO: Looks like using mkRewriteM here with the one-shot trick might save a bit on T9872d? Or could it be a profiling illusion?
+instance Functor RewriteM where
+  fmap f m = mkRewriteM $ \env -> fmap f $ runRewriteM m env
 
 -- | Smart constructor for 'RewriteM', as describe in Note [The one-shot state
 -- monad trick] in "GHC.Utils.Monad".
@@ -777,8 +781,10 @@ rewrite_fam_app tc tys  -- Can be over-saturated
                  -- The type function might be *over* saturated
                  -- in which case the remaining arguments should
                  -- be dealt with by AppTys
-      do { let (tys1, tys_rest) = splitAt (tyConArity tc) tys
-         ; redn <- rewrite_exact_fam_app tc tys1
+      do { let (!tys1, !tys_rest)
+                 | length tys > tyConArity tc = splitAt (tyConArity tc) tys
+                 | otherwise = (tys, [])
+         ; !redn <- rewrite_exact_fam_app tc tys1
          ; rewrite_app_ty_args redn tys_rest }
 
 -- the [TcType] exactly saturate the TyCon
