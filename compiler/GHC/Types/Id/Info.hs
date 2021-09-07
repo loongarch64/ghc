@@ -128,7 +128,6 @@ infixl  1 `setRuleInfo`,
           `setDemandInfo`,
           `setNeverLevPoly`,
           `setLevityInfoWithType`
-
 {-
 ************************************************************************
 *                                                                      *

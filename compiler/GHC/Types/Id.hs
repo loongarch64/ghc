@@ -127,7 +127,7 @@ module GHC.Types.Id (
 import GHC.Prelude
 
 import GHC.Core ( CoreRule, isStableUnfolding, evaldUnfolding,
-                 isCompulsoryUnfolding, Unfolding( NoUnfolding ) )
+                 isCompulsoryUnfolding, Unfolding( NoUnfolding ), isEvaldUnfolding )
 
 import GHC.Types.Id.Info
 import GHC.Types.Basic
@@ -1043,7 +1043,7 @@ transferPolyIdInfo :: Id        -- Original Id
                    -> Id        -- New Id
                    -> Id
 transferPolyIdInfo old_id abstract_wrt new_id
-  = modifyIdInfo transfer new_id
+  = modifyIdInfo transfer new_id `setIdCbvMarks` new_cbv_marks
   where
     arity_increase = count isId abstract_wrt    -- Arity increases by the
                                                 -- number of value binders
@@ -1059,6 +1059,16 @@ transferPolyIdInfo old_id abstract_wrt new_id
     new_strictness  = prependArgsDmdSig arity_increase old_strictness
     old_cpr         = cprSigInfo old_info
 
+    old_cbv_marks   = fromMaybe [] (idCbvMarks_maybe old_id)
+    prep_cbv_marks  = map getMark abstract_wrt
+    new_cbv_marks   = prep_cbv_marks ++ old_cbv_marks
+
+    getMark v
+      | isId v
+      , isEvaldUnfolding (idUnfolding v)
+      = MarkedStrict
+      | otherwise = NotMarkedStrict
+    -- TODO: StrictWorkerFlags
     transfer new_info = new_info `setArityInfo` new_arity
                                  `setInlinePragInfo` old_inline_prag
                                  `setOccInfo` new_occ_info

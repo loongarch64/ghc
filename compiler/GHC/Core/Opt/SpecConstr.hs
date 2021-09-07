@@ -21,7 +21,7 @@ module GHC.Core.Opt.SpecConstr(
 
 import GHC.Prelude
 
-import GHC.Driver.Session ( DynFlags(..), GeneralFlag( Opt_SpecConstrKeen )
+import GHC.Driver.Session ( DynFlags(..), GeneralFlag( Opt_SpecConstrKeen, Opt_WorkerWrapperUnlifted )
                           , gopt, hasPprDebug )
 
 import GHC.Core
@@ -1752,9 +1752,10 @@ spec_one env fn arg_bndrs body (call_pat, rule_number)
 
                 -- And build the results
         ; let spec_body_ty   = exprType spec_body
+              do_unlifting   = gopt Opt_WorkerWrapperUnlifted (sc_dflags env)
 
               (spec_lam_args1, spec_sig, spec_arity, spec_join_arity)
-                  = calcSpecInfo fn call_pat extra_bndrs
+                  = calcSpecInfo do_unlifting fn call_pat extra_bndrs
                   -- Annotate the variables with the strictness information from
                   -- the function (see Note [Strictness information in worker binders])
 
@@ -1801,7 +1802,8 @@ spec_one env fn arg_bndrs body (call_pat, rule_number)
                                , os_rhs = spec_rhs }) }
 
 
-calcSpecInfo :: Id                     -- The original function
+calcSpecInfo :: Bool                   -- Pass strict args unlifted
+             -> Id                     -- The original function
              -> CallPat                -- Call pattern
              -> [Var]                  -- Extra bndrs
              -> ( [Var]                     -- Demand-decorated binders
@@ -1810,7 +1812,7 @@ calcSpecInfo :: Id                     -- The original function
 -- Calcuate bits of IdInfo for the specialised function
 -- See Note [Transfer strictness]
 -- See Note [Strictness information in worker binders]
-calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
+calcSpecInfo !unlift_strict fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
   | isJoinId fn    -- Join points have strictness and arity for LHS only
   = ( bndrs_w_unfds
     , mkClosedDmdSig qvar_dmds div
@@ -1859,7 +1861,8 @@ calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
       | otherwise = v' `seq` (v' : set_arg_info vs ds')
         where
           v'
-            | isId v
+            | unlift_strict
+            -- , isId v
             , isStrUsedDmd d && not (isEvaldUnfolding (idUnfolding v))
             = -- pprTrace "set_spec_unf_" (ppr v) $
               v `setStrUnfolding` MarkedStrict `setIdDemandInfo` d

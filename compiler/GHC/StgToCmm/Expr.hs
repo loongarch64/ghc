@@ -341,6 +341,9 @@ Hence: two basic plans for
 
   -- Reasoning for Plan C:
 
+   This is fairly similar to A, however there is no code to execute to
+   get the value of e.
+
    When using GcInAlts the return point for heap checks and evaluating
    the scrutinee is shared. This does mean we might execute the actual
    branching code twice but it's rare enough to not matter.
