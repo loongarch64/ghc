@@ -761,7 +761,7 @@ almost_devoid_co_var_of_dco (ForAllDCo v kind_co co) cv
   = almost_devoid_co_var_of_co kind_co cv
   && (v == cv || almost_devoid_co_var_of_dco co cv)
 almost_devoid_co_var_of_dco (CoVarDCo v) cv = v /= cv
-almost_devoid_co_var_of_dco AxiomInstDCo cv = True
+almost_devoid_co_var_of_dco AxiomInstDCo _ = True
 almost_devoid_co_var_of_dco (TransDCo co1 co2) cv
   = almost_devoid_co_var_of_dco co1 cv
   && almost_devoid_co_var_of_dco co2 cv

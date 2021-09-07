@@ -1791,7 +1791,7 @@ ppr_dco _ (IfaceFreeCoVarDCo covar) = ppr covar
 ppr_dco _ (IfaceCoVarDCo covar)   = ppr covar
 -- ppr_dco _ (IfaceHoleCo covar)    = braces (ppr covar)
 
-ppr_dco ctxt_prec IfaceAxiomInstDCo
+ppr_dco _ IfaceAxiomInstDCo
   = text "AxiomInst"
 ppr_dco ctxt_prec (IfaceTransDCo co1 co2)
     -- chain nested TransCo
@@ -1802,6 +1802,7 @@ ppr_dco ctxt_prec (IfaceTransDCo co1 co2)
 ppr_dco ctxt_prec (IfaceCoDCo co)
   = ppr_co ctxt_prec co
 
+-- AMG TODO: deduplicate some of the pretty-printing code
 ppr_special_dco :: PprPrec -> SDoc -> [IfaceDCoercion] -> SDoc
 ppr_special_dco ctxt_prec doc cos
   = maybeParen ctxt_prec appPrec

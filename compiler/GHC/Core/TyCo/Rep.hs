@@ -1509,7 +1509,6 @@ in nominal ways. If not, having w be representational is OK.
 -}
 
 
-type KindDCoercion = DCoercion
 type DCoercionN = DCoercion
 
 data DCoercion
@@ -1956,11 +1955,11 @@ foldTyCo (TyCoFolder { tcf_view       = view
     go_dcos _   []     = mempty
     go_dcos env (c:cs) = go_dco env c `mappend` go_dcos env cs
 
-    go_dco env ReflDCo            = mempty
+    go_dco _   ReflDCo            = mempty
     go_dco env (TyConAppDCo args) = go_dcos env args
     go_dco env (AppDCo c1 c2)     = go_dco env c1 `mappend` go_dco env c2
     go_dco env (CoVarDCo cv)      = covar env cv
-    go_dco env AxiomInstDCo       = mempty
+    go_dco _   AxiomInstDCo       = mempty
     go_dco env (TransDCo c1 c2)   = go_dco env c1 `mappend` go_dco env c2
     go_dco env (CoDCo co)         = go_co env co
     go_dco env (ForAllDCo tv kind_co co)

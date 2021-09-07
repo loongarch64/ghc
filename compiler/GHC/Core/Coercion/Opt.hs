@@ -610,7 +610,7 @@ opt_univ opts env sym (PhantomProv h) _r ty1 ty2
     ty1' = substTy (lcSubstLeft  env) ty1
     ty2' = substTy (lcSubstRight env) ty2
 
-opt_univ opts env sym (DCoProv dco) r ty1 ty2
+opt_univ _opts env sym (DCoProv dco) r ty1 ty2
 --  = opt_univ opts env sym (PluginProv "AMG TODO") r ty1 ty2
   -- AMG TODO: I don't know how to write this correctly, but the following is probably wrong.
   | sym       = substCo (lcTCvSubst env) (mkSymCo (mkDCoCo r ty1 ty2 dco))

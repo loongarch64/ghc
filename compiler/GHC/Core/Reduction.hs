@@ -27,7 +27,7 @@ module GHC.Core.Reduction
 
 import GHC.Prelude
 
-import GHC.Core.Class      ( Class(classTyCon) )
+import GHC.Core.Class      ( Class(..) )
 import GHC.Core.Coercion
 import GHC.Core.Predicate  ( mkClassPred )
 import GHC.Core.TyCon      ( TyCon )
@@ -186,7 +186,7 @@ downgradeRedn :: Role -- ^ desired role
               -> Role -- ^ current role
               -> Reduction
               -> Reduction
-downgradeRedn new_role old_role redn@(Reduction co _)
+downgradeRedn _new_role _old_role redn@(Reduction co _)
   = redn { reductionCoercion = {-downgradeRole new_role old_role-} co }
 {-# INLINE downgradeRedn #-}
 
@@ -207,7 +207,7 @@ mkTransRedn co1 redn@(Reduction co2 _)
 
 -- | The reflexive reduction.
 mkReflRedn :: Role -> Type -> Reduction
-mkReflRedn r ty = mkReduction mkReflDCo ty -- AMG TODO: drop r?
+mkReflRedn _r ty = mkReduction mkReflDCo ty -- AMG TODO: drop r?
 
 -- | Create a 'Reduction' from a kind cast, in which
 -- the casted type is the rewritten type.
@@ -345,7 +345,7 @@ mkFunRedn :: Role
           -> Reduction  -- ^ argument reduction
           -> Reduction  -- ^ result reduction
           -> Reduction
-mkFunRedn r vis
+mkFunRedn _r vis -- AMG TODO: drop r?
   (Reduction w_co w_ty)
   (Reduction arg_co arg_ty)
   (Reduction res_co res_ty)
@@ -399,7 +399,7 @@ mkProofIrrelRedn role co g1 g2
 -- | Create a reflexive 'Reduction' whose RHS is the given 'Coercion',
 -- with the specified 'Role'.
 mkReflCoRedn :: Role -> Coercion -> Reduction
-mkReflCoRedn role co
+mkReflCoRedn _role co -- AMG TODO: drop role?
   = mkReduction mkReflDCo co_ty
   where
     co_ty = mkCoercionTy co

@@ -1525,7 +1525,7 @@ normalise_var_bndr tcvar
   = do { lc1 <- getLC
        ; env <- getEnv
        ; let callback lc ki = (ki, runNormM (normalise_type ki) env lc Nominal)
-       ; let (a, b, (_, c)) = liftCoSubstVarBndrUsing (\(ki, redn) -> mkDCoCo Nominal ki (reductionReducedType redn) (reductionCoercion redn)) callback lc1 tcvar
+       ; let (a, b, (_, c)) = liftCoSubstVarBndrUsing (\(ki, redn) -> mkDCoCo Nominal ki (reductionReducedType redn) (reductionCoercion redn)) callback lc1 tcvar -- AMG TODO: this looks a bit dubious
        ; return (a, b, c) }
 
 -- | a monad for the normalisation functions, reading 'FamInstEnvs',

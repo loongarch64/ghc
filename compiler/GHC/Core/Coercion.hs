@@ -53,8 +53,8 @@ module GHC.Core.Coercion (
         mkFunDCo,
         mkForAllDCo,
         mkHomoForAllDCos,
-        mkProofIrrelDCo,
-        mkGReflLeftDCo, mkGReflRightDCo, mkCoherenceRightDCo,
+        mkGReflLeftDCo,
+        mkGReflRightDCo,
         mkCoherenceRightDCo,
         mkCoherenceRightMDCo,
         mkTransDCo,
@@ -922,6 +922,7 @@ mkHomoForAllDCos_NoRefl vs orig_co
     go v co = ForAllDCo v (mkNomReflCo (varType v)) co
 
 
+{-
 mkProofIrrelDCo :: Role       -- ^ role of the created coercion, "r"
                 -> DCoercionN  -- ^ :: phi1 ~N phi2
                 -> DCoercion   -- ^ g1 :: phi1
@@ -930,12 +931,13 @@ mkProofIrrelDCo :: Role       -- ^ role of the created coercion, "r"
 
 -- if the two coercion prove the same fact, I just don't care what
 -- the individual coercions are.
-mkProofIrrelDCo r ReflDCo _ _ = ReflDCo
+mkProofIrrelDCo _ ReflDCo _ _ = ReflDCo
   -- kco is a kind coercion, thus @isGReflCo@ rather than @isReflCo@
 -- AMG TODO: think here; do we need this? Currently mkProofIrrelCo used only by unifier
 mkProofIrrelDCo _ _ _ _ = error "TODO"
 --mkProofIrrelDCo r kco        g1 g2 = CoDCo $ mkUnivCo (ProofIrrelProv kco) r
 --                                                      (mkCoercionTy g1) (mkCoercionTy g2)
+-}
 
 
 

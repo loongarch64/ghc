@@ -577,9 +577,9 @@ expandTypeSynonyms ty
     go_co _ (HoleCo h)
       = pprPanic "expandTypeSynonyms hit a hole" (ppr h)
 
-    go_dco subst ReflDCo
+    go_dco _     ReflDCo
       = ReflDCo
-    go_dco subst (TyConAppDCo args)
+    go_dco subst (TyConAppDCo args)  -- AMG TODO clean up the following
       = {-mk-}TyConAppDCo (map (go_dco subst) args)
     go_dco subst (AppDCo co arg)
       = {-mk-}AppDCo (go_dco subst co) (go_dco subst arg)
@@ -588,7 +588,7 @@ expandTypeSynonyms ty
         {-mk-}ForAllDCo tv' kind_co' (go_dco subst' co)
     go_dco subst (CoVarDCo cv)
       = CoDCo (substCoVar subst cv)
-    go_dco subst AxiomInstDCo
+    go_dco _     AxiomInstDCo
       = AxiomInstDCo
     go_dco subst (TransDCo co1 co2)
       = {-mk-}TransDCo (go_dco subst co1) (go_dco subst co2)
@@ -932,11 +932,11 @@ mapTyCoX (TyCoMapper { tcm_tyvar = tyvar
     go_dcos _   []       = return []
     go_dcos env (co:cos) = (:) <$> go_dco env co <*> go_dcos env cos
 
-    go_dco env ReflDCo          = pure ReflDCo
+    go_dco _   ReflDCo          = pure ReflDCo
     go_dco env (AppDCo c1 c2)   = AppDCo <$> go_dco env c1 <*> go_dco env c2
     go_dco env (CoVarDCo cv)    = CoDCo <$> covar env cv
     go_dco env (TransDCo c1 c2) = TransDCo <$> go_dco env c1 <*> go_dco env c2
-    go_dco env (AxiomInstDCo)   = pure AxiomInstDCo
+    go_dco _   AxiomInstDCo     = pure AxiomInstDCo
     go_dco env (CoDCo co)       = CoDCo <$> go_co env co
     go_dco env co@(TyConAppDCo cos)
       -- Not a TcTyCon
@@ -3181,7 +3181,7 @@ occCheckExpand vs_to_avoid ty
                                              ; return (mkAxiomRuleCo ax cs') }
 
     ------------------
-    go_dco cxt ReflDCo                 = pure ReflDCo
+    go_dco _   ReflDCo                 = pure ReflDCo
       -- Note: Coercions do not contain type synonyms
     go_dco cxt (TyConAppDCo args)    = do { args' <- mapM (go_dco cxt) args
                                              ; return (TyConAppDCo args') }
@@ -3201,7 +3201,7 @@ occCheckExpand vs_to_avoid ty
       | bad_var_occ as c                = Nothing
       | otherwise                       = return co
 
-    go_dco cxt AxiomInstDCo = pure AxiomInstDCo
+    go_dco _   AxiomInstDCo = pure AxiomInstDCo
     go_dco cxt (TransDCo co1 co2)         = do { co1' <- go_dco cxt co1
                                              ; co2' <- go_dco cxt co2
                                              ; return (TransDCo co1' co2') }

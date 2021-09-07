@@ -133,6 +133,8 @@ tidyToIfaceTypeX env ty = toIfaceTypeX (mkVarSet free_tcvs) (tidyType env' ty)
 pprCo, pprParendCo :: Coercion -> SDoc
 pprCo       co = getPprStyle $ \ sty -> pprIfaceCoercion (tidyToIfaceCoSty co sty)
 pprParendCo co = getPprStyle $ \ sty -> pprParendIfaceCoercion (tidyToIfaceCoSty co sty)
+
+pprDCo :: DCoercion -> SDoc
 pprDCo      co = getPprStyle $ \ sty -> pprIfaceDCoercion (tidyToIfaceDCoSty co sty)
 
 tidyToIfaceCoSty :: Coercion -> PprStyle -> IfaceCoercion
