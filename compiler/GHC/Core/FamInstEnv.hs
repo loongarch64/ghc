@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveFunctor       #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections       #-}
+-- {-# LANGUAGE TupleSections       #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 -- (c) The University of Glasgow 2006

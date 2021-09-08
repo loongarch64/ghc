@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns  #-}
 
-{-# LANGUAGE DeriveFunctor #-}
+-- {-# LANGUAGE DeriveFunctor #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 
