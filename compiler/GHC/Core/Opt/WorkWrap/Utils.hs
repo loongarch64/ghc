@@ -590,7 +590,7 @@ combineWorkerQuality :: WorkerQuality -> WorkerQuality -> WorkerQuality
 combineWorkerQuality (WorkerQuality x) (WorkerQuality y) = WorkerQuality $ x + y
 
 isGoodWorker :: WorkerQuality -> Bool
-isGoodWorker (WorkerQuality q) = q >= 5
+isGoodWorker (WorkerQuality q) = q >= 1
 
 unboxWorkerArg :: WorkerQuality
 unboxWorkerArg = WorkerQuality 5
