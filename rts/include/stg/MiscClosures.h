@@ -572,7 +572,8 @@ RTS_FUN_DECL(stg_traceMarkerzh);
 RTS_FUN_DECL(stg_getThreadAllocationCounterzh);
 RTS_FUN_DECL(stg_setThreadAllocationCounterzh);
 RTS_FUN_DECL(stg_cloneMyStackzh);
-
+RTS_FUN_DECL(stg_decodeStackzh);
+RTS_FUN_DECL(stg_sendCloneStackMessagezh);
 
 /* Other misc stuff */
 // See wiki:commentary/compiler/backends/ppr-c#prototypes

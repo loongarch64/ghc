@@ -11,6 +11,7 @@
 #include "Rts.h"
 #include "rts/Messages.h"
 #include "Messages.h"
+#include "rts/Types.h"
 #include "rts/storage/TSO.h"
 #include "stg/Types.h"
 #include "CloneStack.h"
@@ -110,12 +111,12 @@ void sendCloneStackMessage(StgTSO *tso STG_UNUSED, HsStablePtr mvar STG_UNUSED) 
 // array is the count of stack frames.
 // Each InfoProvEnt* is looked up by lookupIPE(). If there's no IPE for a stack
 // frame it's represented by null.
-StgMutArrPtrs* decodeClonedStack(StgStack* stack) {
+StgMutArrPtrs* decodeClonedStack(Capability *cap, StgStack* stack) {
   StgWord closureCount = getStackFrameCount(stack);
 
   StgMutArrPtrs* array = allocateMutableArray(closureCount);
 
-  copyPtrsToArray(array, stack);
+  copyPtrsToArray(cap, array, stack);
 
   return array;
 }
@@ -168,7 +169,7 @@ StgMutArrPtrs* allocateMutableArray(StgWord closureCount) {
 }
 
 
-void copyPtrsToArray(StgMutArrPtrs* arr, StgStack* stack) {
+void copyPtrsToArray(Capability *cap, StgMutArrPtrs* arr, StgStack* stack) {
   StgWord index = 0;
   StgStack *last_stack = stack;
   while (true) {
@@ -193,7 +194,7 @@ void copyPtrsToArray(StgMutArrPtrs* arr, StgStack* stack) {
 #else
       InfoProvEnt* ipe = lookupIPE(infoTable);
 #endif
-      arr->payload[index] = createPtrClosure(myTask()->cap, (StgClosure*) ipe);
+      arr->payload[index] = createPtrClosure(cap, ipe);
 
       index++;
     }
@@ -210,11 +211,11 @@ void copyPtrsToArray(StgMutArrPtrs* arr, StgStack* stack) {
   }
 }
 
-// Create a GHC.Ptr (Haskell constructor: `Ptr Addr#`) pointing to the closure
-// c.
-StgClosure* createPtrClosure(Capability *cap, StgClosure* c) {
+// Create a GHC.Ptr (Haskell constructor: `Ptr InfoProvEnt`) pointing to the
+// IPE.
+StgClosure* createPtrClosure(Capability *cap, InfoProvEnt* ipe) {
   StgClosure *p = (StgClosure *) allocate(cap, CONSTR_sizeW(0,1));
   SET_HDR(p, &base_GHCziPtr_Ptr_con_info, CCS_SYSTEM);
-  p->payload[0] = c;
+  p->payload[0] = (StgClosure*) ipe;
   return TAG_CLOSURE(1, p);
 }

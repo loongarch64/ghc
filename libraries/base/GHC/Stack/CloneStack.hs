@@ -3,6 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE UnliftedFFITypes#-}
+{-# LANGUAGE GHCForeignImportPrim #-}
 
 -- |
 -- This module exposes an interface for capturing the state of a thread's
@@ -18,19 +19,24 @@ module GHC.Stack.CloneStack (
   ) where
 
 import Control.Concurrent.MVar
-import Control.Monad (forM)
 import Data.Maybe (catMaybes)
 import Foreign
 import GHC.Conc.Sync
-import GHC.Exts (Int (I#), RealWorld)
+import GHC.Exts (Int (I#), RealWorld, StackSnapshot#, ThreadId#, Array#, sizeofArray#, indexArray#, State#, StablePtr#)
 import GHC.IO (IO (..))
-import GHC.Prim (StackSnapshot#, cloneMyStack#, ThreadId#, MutableArray#, readArray#, sizeofMutableArray#)
 import GHC.Stack.CCS (InfoProv (..), InfoProvEnt, ipeProv, peekInfoProv)
+import GHC.Stable
 
 -- | A frozen snapshot of the state of an execution stack.
 --
 -- @since 2.16.0.0
 data StackSnapshot = StackSnapshot !StackSnapshot#
+
+foreign import prim "stg_decodeStackzh" decodeStack# :: StackSnapshot# -> State# RealWorld -> (# State# RealWorld, Array# (Ptr InfoProvEnt) #)
+
+foreign import prim "stg_cloneMyStackzh" cloneMyStack# :: State# RealWorld -> (# State# RealWorld, StackSnapshot# #)
+
+foreign import prim "stg_sendCloneStackMessagezh" sendCloneStackMessage# :: ThreadId# -> StablePtr# PrimMVar -> State# RealWorld -> (# State# RealWorld, (# #) #)
 
 {-
 Note [Stack Cloning]
@@ -73,7 +79,7 @@ RTS interface
 -------------
 There are two different ways to clone a stack:
 1. `cloneMyStack#` - A primop for cloning the active thread's stack.
-2. `sendCloneStackMessage` - A FFI function for cloning another thread's stack.
+2. `sendCloneStackMessage#` - A primop for cloning another thread's stack.
    Sends a RTS message (Messages.c) with a MVar to that thread. The cloned
    stack is reveived by taking it out of this MVar.
 
@@ -142,11 +148,31 @@ Note [Stack Decoding]
 A cloned stack is decoded (unwound) by looking up the Info Table Provenance
 Entries (IPE) for every stack frame with `lookupIPE` in the RTS.
 
+The IPEs contain source locations and are pulled from the RTS/C world into
+Haskell.
+
+RTS interface
+-------------
+
+The primop decodeStack# returns an array of IPE pointers that are later
+unmarshalled with HSC. If there is no IPE for a return frame (which can easily
+happen when a library wasn't compiled with `-finfo-table-map`), it's
+represented by a null pointer.
+
+Caveats:
+- decodeStack# has to be a primop (not a simple C FFI function), because
+  there always has to be at least one active `TSO`. Otherwise, allocating
+  memory with the garbage collector for the returned value fails.
+- decodeStack# has to be defined outside of `primops.txt.pp` because its
+  return type `Array# (Ptr InfoProvEnt)` cannot be defined there:
+  `InfoProvEnt` and `Ptr` would have to be imported which seems to be too
+  specific for this file.
+
+Notes
+-----
 The relevant notes are:
   - Note [Mapping Info Tables to Source Positions]
   - Note [Stacktraces from Info Table Provenance Entries (IPE based stack unwinding)]
-
-The IPEs contain source locations and are here pulled from the RTS/C world into Haskell.
 -}
 
 -- | Clone the stack of the executing thread
@@ -156,23 +182,19 @@ cloneMyStack :: IO StackSnapshot
 cloneMyStack = IO $ \s ->
    case (cloneMyStack# s) of (# s1, stack #) -> (# s1, StackSnapshot stack #)
 
-foreign import ccall "sendCloneStackMessage" sendCloneStackMessage :: ThreadId# -> StablePtr PrimMVar -> IO ()
-
 -- | Clone the stack of a thread identified by its 'ThreadId'
 --
 -- @since 2.16.0.0
 cloneThreadStack :: ThreadId -> IO StackSnapshot
 cloneThreadStack (ThreadId tid#) = do
   resultVar <- newEmptyMVar @StackSnapshot
-  ptr <- newStablePtrPrimMVar resultVar
+  boxedPtr@(StablePtr ptr) <- newStablePtrPrimMVar resultVar
   -- Use the RTS's "message" mechanism to request that
   -- the thread captures its stack, saving the result
   -- into resultVar.
-  sendCloneStackMessage tid# ptr
-  freeStablePtr ptr
+  IO $ \s -> case sendCloneStackMessage# tid# ptr s of (# s', (# #) #) -> (# s', () #)
+  freeStablePtr boxedPtr
   takeMVar resultVar
-
-foreign import ccall "decodeClonedStack" decodeClonedStack :: StackSnapshot# -> MutableArray# RealWorld (Ptr InfoProvEnt)
 
 -- | Represetation for the source location where a return frame was pushed on the stack.
 -- This happens every time when a @case ... of@ scrutinee is evaluated.
@@ -191,26 +213,37 @@ data StackEntry = StackEntry
 --
 -- @since 2.16.0.0
 decode :: StackSnapshot -> IO [StackEntry]
-decode (StackSnapshot stack) =
-  let array = decodeClonedStack stack
-      arraySize = I# (sizeofMutableArray# array)
-   in do
-        result <- forM [0 .. arraySize - 1] $ \(I# i) -> do
-          ipe <- IO $ readArray# array i
-          if ipe == nullPtr
-            then pure Nothing
-            else do
-              infoProv <- (peekInfoProv . ipeProv) ipe
-              pure $ Just (toStackEntry infoProv)
+decode stackSnapshot = do
+    stackEntries <- getDecodedStackArray stackSnapshot
+    ipes <- mapM unmarshall stackEntries
+    return $ catMaybes ipes
 
-        return $ catMaybes result
-  where
-    toStackEntry :: InfoProv -> StackEntry
-    toStackEntry infoProv =
-      StackEntry
+    where
+      unmarshall :: Ptr InfoProvEnt -> IO (Maybe StackEntry)
+      unmarshall ipe = if ipe == nullPtr then
+                          pure Nothing
+                       else do
+                          infoProv <- (peekInfoProv . ipeProv) ipe
+                          pure $ Just (toStackEntry infoProv)
+      toStackEntry :: InfoProv -> StackEntry
+      toStackEntry infoProv =
+        StackEntry
         { functionName = ipLabel infoProv,
           moduleName = ipMod infoProv,
           srcLoc = ipLoc infoProv,
           -- read looks dangerous, be we can trust that the closure type is always there.
           closureType = read . ipDesc $ infoProv
         }
+
+getDecodedStackArray :: StackSnapshot -> IO [Ptr InfoProvEnt]
+getDecodedStackArray (StackSnapshot s) =
+  IO $ \s0 -> case decodeStack# s s0 of
+    (# s1, a #) -> (# s1, (go a ((I# (sizeofArray# a)) - 1)) #)
+  where
+    go :: Array# (Ptr InfoProvEnt) -> Int -> [Ptr InfoProvEnt]
+    go stack 0 = [stackEntryAt stack 0]
+    go stack i = (stackEntryAt stack i) : go stack (i - 1)
+
+    stackEntryAt :: Array# (Ptr InfoProvEnt) -> Int -> Ptr InfoProvEnt
+    stackEntryAt stack (I# i) = case indexArray# stack i of
+      (# se #) -> se

@@ -15,7 +15,7 @@ StgStack* cloneStack(Capability* capability, const StgStack* stack);
 
 void sendCloneStackMessage(StgTSO *tso, HsStablePtr mvar);
 
-StgMutArrPtrs* decodeClonedStack(StgStack* stack);
+StgMutArrPtrs* decodeClonedStack(Capability *cap, StgStack* stack);
 
 #include "BeginPrivate.h"
 
@@ -25,8 +25,8 @@ void handleCloneStackMessage(MessageCloneStack *msg);
 
 StgWord getStackFrameCount(StgStack* stack);
 StgWord getStackChunkClosureCount(StgStack* stack);
-void copyPtrsToArray(StgMutArrPtrs* arr, StgStack* stack);
-StgClosure* createPtrClosure(Capability* cap, StgClosure* c);
+void copyPtrsToArray(Capability *cap, StgMutArrPtrs* arr, StgStack* stack);
+StgClosure* createPtrClosure(Capability* cap, InfoProvEnt* ipe);
 StgMutArrPtrs* allocateMutableArray(StgWord size);
 
 #include "EndPrivate.h"

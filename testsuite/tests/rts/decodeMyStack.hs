@@ -22,9 +22,9 @@ main = do
   assertEqual
     (returnFrame 1)
     [ StackEntry
-        { functionName = "getDecodedStack",
+        { functionName = "assertEqual",
           moduleName = "Main",
-          srcLoc = "decodeMyStack.hs:7:28-42",
+          srcLoc = "decodeMyStack.hs:48:11",
           closureType = 53
         },
       StackEntry
@@ -34,12 +34,13 @@ main = do
           closureType = 53
         },
       StackEntry
-        { functionName = "assertEqual",
+        { functionName = "getDecodedStack",
           moduleName = "Main",
-          srcLoc = "decodeMyStack.hs:47:11",
+          srcLoc = "decodeMyStack.hs:7:28-42",
           closureType = 53
         }
     ]
+
   return ()
 
 assertEqual :: (Eq a, Show a) => a -> a -> IO ()

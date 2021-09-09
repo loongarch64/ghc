@@ -990,6 +990,8 @@
       SymI_HasProto(stg_getThreadAllocationCounterzh)                   \
       SymI_HasProto(stg_setThreadAllocationCounterzh)                   \
       SymI_HasProto(stg_cloneMyStackzh)                                 \
+      SymI_HasProto(stg_decodeStackzh)                                  \
+      SymI_HasProto(stg_sendCloneStackMessagezh)                        \
       SymI_HasProto(getMonotonicNSec)                                   \
       SymI_HasProto(lockFile)                                           \
       SymI_HasProto(unlockFile)                                         \
