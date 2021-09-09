@@ -184,7 +184,7 @@ void copyPtrsToArray(Capability *cap, StgMutArrPtrs* arr, StgStack* stack) {
       // non-"Tables Next to Code" builds.
       // When "Tables Next to Code" is used, the assembly label of the info table
       // is between the info table and it's code. There's no other label in the
-      // assembly code which could be used instead, thus lookupIPE() is actuallly
+      // assembly code which could be used instead, thus lookupIPE() is actually
       // called with the code pointer of the info table.
       // (As long as it's used consistently, this doesn't really matter - IPE uses
       // the pointer only to connect an info table to it's provenance entry in the

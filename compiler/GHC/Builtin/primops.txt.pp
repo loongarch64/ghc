@@ -3648,6 +3648,9 @@ primop  SetThreadAllocationCounter "setThreadAllocationCounter#" GenPrimOp
    out_of_line      = True
 
 primtype StackSnapshot#
+   { Haskell representation of a {\tt StgStack*} that was created (cloned)
+     with a function in {\tt GHC.Stack.CloneStack}. Please check the
+     documentation in this module for more detailed explanations. }
 
 ------------------------------------------------------------------------
 section "Safe coercions"
