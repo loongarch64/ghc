@@ -101,7 +101,7 @@ makeTagged env = TE { te_env = te_env env
                     , te_ext = ExtEqEv }
 
 data TagSig  -- The signature for each binding
-  = TagSig Arity TagInfo -- TODO: I think we can skip the arity, it should always be available via idArity
+  = TagSig !Arity !TagInfo -- TODO: I think we can skip the arity, it should always be available via idArity
                          -- for all cases where we compute it.
   deriving( Eq )
 
@@ -129,7 +129,7 @@ lookupInfo env (StgVarArg var)
   = TagProper
 
   -- Variables in the environment
-  | Just (TagSig 0 info) <- lookupVarEnv (te_env env) var
+  | Just (TagSig _ info) <- lookupVarEnv (te_env env) var
   = info
 
   -- | Just lf_info <- idLFInfo_maybe var

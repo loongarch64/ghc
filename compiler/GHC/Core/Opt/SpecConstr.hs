@@ -1863,7 +1863,9 @@ calcSpecInfo !unlift_strict fn (CP { cp_qvars = qvars, cp_args = pats }) extra_b
           v'
             | unlift_strict
             -- , isId v
-            , isStrUsedDmd d && not (isEvaldUnfolding (idUnfolding v))
+            , isStrUsedDmd d
+            , not (isEvaldUnfolding (idUnfolding v))
+            , not (isFunTy (idType v))
             = -- pprTrace "set_spec_unf_" (ppr v) $
               v `setStrUnfolding` MarkedStrict `setIdDemandInfo` d
             | otherwise = setIdDemandInfo v d

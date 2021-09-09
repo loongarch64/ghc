@@ -634,6 +634,7 @@ wantToUnboxArg unlift_strict fam_envs inlineable_flag ty dmd
 
   | unlift_strict
   , isStrUsedDmd dmd
+  , not (isFunTy ty)
   = Unlift
 
   | otherwise

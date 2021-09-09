@@ -750,13 +750,14 @@ setIdCbvMarks :: Id -> [StrictnessMark] -> Id
 setIdCbvMarks id marks
   | not (any isMarkedStrict marks) = maybeModifyIdDetails (removeMarks $ idDetails id) id
   | otherwise =
-      pprTrace "setMarks:" (ppr id <> text ":" <> ppr marks) $
+      -- pprTrace "setMarks:" (ppr id <> text ":" <> ppr marks) $
       case idDetails id of
         -- good ol (likely worker) function
         VanillaId ->      id `setIdDetails` (StrictWorkerId trimmedMarks)
         JoinId arity _ -> id `setIdDetails` (JoinId arity (Just trimmedMarks))
         -- Updating an existing strict worker.
         StrictWorkerId _ -> id `setIdDetails` (StrictWorkerId trimmedMarks)
+        -- Do nothing for these
         RecSelId{} -> id
         DFunId{} -> id
         _ -> pprTrace "setIdCbvMarks: Unable to set cbv marks for" (ppr id $$
@@ -775,7 +776,6 @@ setIdCbvMarks id marks
 
 idCbvMarks_maybe :: Id -> Maybe [StrictnessMark]
 idCbvMarks_maybe id = case idDetails id of
-  -- TODO: Join points?
   StrictWorkerId marks -> Just marks
   JoinId _arity marks  -> marks
   _                    -> Nothing

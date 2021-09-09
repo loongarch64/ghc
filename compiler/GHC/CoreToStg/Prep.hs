@@ -1429,6 +1429,8 @@ with this another way, as described in Note [Primop wrappers] in GHC.Builtin.Pri
 maybeSaturate :: Id -> CpeApp -> Int -> UniqSM CpeRhs
 maybeSaturate fn expr n_args
   -- | isJust marks
+  -- , marks <- idCbvMarks_maybe fn
+  -- , undermarked <- fmap (\xs -> length xs > n_args) marks
   -- , pprTrace "maybeSat" (text "fn:" <> ppr fn $$ text "exp:" <> ppr expr $$ text "n_args:" <> ppr n_args $$
   --         text "marks:" <> ppr marks $$
   --         text "undermarked:" <> ppr undermarked) False
@@ -1448,8 +1450,7 @@ maybeSaturate fn expr n_args
     fn_arity     = idArity fn
     excess_arity = fn_arity - n_args
     sat_expr     = cpeEtaExpand excess_arity expr
-    marks = idCbvMarks_maybe fn
-    undermarked = fmap (\xs -> length xs > n_args) marks
+
 
 {-
 ************************************************************************
