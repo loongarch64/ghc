@@ -134,8 +134,14 @@ class TestConfig:
         # Do we have interpreter support?
         self.have_interp = False
 
-        # Do we have shared libraries?
-        self.have_shared_libs = False
+        # Does the platform support loading of dynamic shared libraries?
+        self.supports_dynamic_libs = False
+
+        # Does GHC support dynamic linking of Haskell objects (i.e. the dynamic way)?
+        self.supports_dynamic_hs = False
+
+        # Is the compiler dynamically linked?
+        self.ghc_dynamic = False
 
         # Do we have SMP support?
         self.have_smp = False
@@ -151,9 +157,6 @@ class TestConfig:
 
         # Are we testing an in-tree compiler?
         self.in_tree_compiler = True
-
-        # Is the compiler dynamically linked?
-        self.ghc_dynamic = False
 
         # Are we running in a ThreadSanitizer-instrumented build?
         self.have_thread_sanitizer = False
@@ -205,6 +208,15 @@ class TestConfig:
         # I have no idea what this does
         self.package_conf_cache_file = None # type: Optional[Path]
 
+    def validate(self) -> None:
+        """ Check the TestConfig for self-consistency """
+        def assert_implies(a: bool, b: bool):
+            if a:
+                assert(b)
+
+        assert_implies(self.supports_dynamic_hs, self.supports_dynamic_libs)
+        assert_implies(self.have_dynamic, self.supports_dynamic_hs)
+        assert_implies(self.ghc_dynamic, self.have_dynamic)
 
 global config
 config = TestConfig()

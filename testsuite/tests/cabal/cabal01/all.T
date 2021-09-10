@@ -8,7 +8,7 @@ if config.have_profiling:
 else:
     prof = '--disable-library-profiling'
 
-if config.have_shared_libs:
+if config.supports_dynamic_hs:
     dyn = '--enable-shared'
 else:
     dyn = '--disable-shared'
