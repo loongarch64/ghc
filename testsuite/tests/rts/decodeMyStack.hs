@@ -3,48 +3,21 @@ module Main where
 import GHC.Stack.CloneStack
 import System.IO.Unsafe
 
-getDecodedStack :: Int -> (Int, [StackEntry])
-getDecodedStack i = case ( unsafePerformIO $ do
-                             stack <- cloneMyStack
-                             stackEntries <- decode stack
-                             pure (i, stackEntries)
-                         ) of
-  (1, stackEntries) -> (1, stackEntries)
-  (i, _) -> (i, [])
-
-returnFrame :: Int -> [StackEntry]
-returnFrame i = case getDecodedStack i of
-  (1, stackEntries) -> stackEntries
-  _ -> []
+getDeepStack :: Int -> (Int, [StackEntry])
+getDeepStack deepness = case getDeepStackCase deepness of
+  [] -> (0, [])
+  s -> (deepness, s)
+  where
+    getDeepStackCase :: Int -> [StackEntry]
+    getDeepStackCase 0 =
+      unsafePerformIO $
+        ( do
+            stack <- cloneMyStack
+            GHC.Stack.CloneStack.decode stack
+        )
+    getDeepStackCase n = snd $ getDeepStack $ n - 1
 
 main :: IO ()
 main = do
-  assertEqual
-    (returnFrame 1)
-    [ StackEntry
-        { functionName = "assertEqual",
-          moduleName = "Main",
-          srcLoc = "decodeMyStack.hs:48:11",
-          closureType = 53
-        },
-      StackEntry
-        { functionName = "returnFrame",
-          moduleName = "Main",
-          srcLoc = "decodeMyStack.hs:(16,1)-(18,9)",
-          closureType = 53
-        },
-      StackEntry
-        { functionName = "getDecodedStack",
-          moduleName = "Main",
-          srcLoc = "decodeMyStack.hs:7:28-42",
-          closureType = 53
-        }
-    ]
-
-  return ()
-
-assertEqual :: (Eq a, Show a) => a -> a -> IO ()
-assertEqual x y =
-  if x == y
-    then return ()
-    else error $ "assertEqual: " ++ show x ++ " /= " ++ show y
+  let (_, stackEntries) = getDeepStack 10
+  mapM_ (putStrLn . show) stackEntries
