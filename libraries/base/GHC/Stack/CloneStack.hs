@@ -7,7 +7,11 @@
 
 -- |
 -- This module exposes an interface for capturing the state of a thread's
--- execution stack for diagnostics purposes.
+-- execution stack for diagnostics purposes: 'cloneMyStack',
+-- 'cloneThreadStack'.
+--
+-- Such a "cloned" stack can be decoded with 'decode' to a stack trace, given
+-- that the @-finfo-table-map@ is enabled.
 --
 -- @since 2.16.0.0
 module GHC.Stack.CloneStack (
@@ -207,9 +211,19 @@ data StackEntry = StackEntry
   deriving (Show, Eq)
 
 -- | Decode a 'StackSnapshot' to a stacktrace (a list of 'StackEntry').
--- The stacktrace is created from return frames with according 'InfoProvEnt'
+-- The stack trace is created from return frames with according 'InfoProvEnt'
 -- entries. To generate them, use the GHC flag @-finfo-table-map@. If there are
--- no 'InfoProv' entries, an empty list is returned.
+-- no 'InfoProvEnt' entries, an empty list is returned.
+--
+-- Please note:
+--
+--   * To gather 'StackEntry' from libraries, these have to be
+--     compiled with @-finfo-table-map@, too.
+--   * Due to optimizations by GHC (e.g. inlining) the stacktrace may change
+--     with different GHC parameters and versions.
+--   * The stack trace is empty (by design) if there are no return frames on
+--     the stack. (These are pushed every time when a @case ... of@ scrutinee
+--     is evaluated.)
 --
 -- @since 2.16.0.0
 decode :: StackSnapshot -> IO [StackEntry]
