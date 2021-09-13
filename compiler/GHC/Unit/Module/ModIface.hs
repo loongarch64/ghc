@@ -23,7 +23,7 @@ module GHC.Unit.Module.ModIface
    , emptyFullModIface
    , mkIfaceHashCache
    , emptyIfaceHashCache
-   )
+   ,mi_mnwib)
 where
 
 import GHC.Prelude
@@ -261,6 +261,9 @@ mi_boot :: ModIface -> IsBootInterface
 mi_boot iface = if mi_hsc_src iface == HsBootFile
     then IsBoot
     else NotBoot
+
+mi_mnwib :: ModIface -> ModuleNameWithIsBoot
+mi_mnwib iface = GWIB (moduleName $ mi_module iface) (mi_boot iface)
 
 -- | Lookups up a (possibly cached) fixity from a 'ModIface'. If one cannot be
 -- found, 'defaultFixity' is returned instead.

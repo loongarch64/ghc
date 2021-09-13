@@ -9,8 +9,7 @@ module GHC.Runtime.Context
    , icExtendGblRdrEnv
    , icInteractiveModule
    , icInScopeTTs
-   , icPrintUnqual
-   )
+   , icPrintUnqual )
 where
 
 import GHC.Prelude

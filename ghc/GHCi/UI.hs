@@ -550,7 +550,8 @@ interactiveUI config srcs maybe_exprs = do
                    lastErrorLocations = lastErrLocationsRef,
                    mod_infos          = M.empty,
                    flushStdHandles    = flush,
-                   noBuffering        = nobuffering
+                   noBuffering        = nobuffering,
+                   hmiCache = []
                  }
 
    return ()
@@ -1656,6 +1657,12 @@ trySuccess act =
                                 return Failed) $ do
       act
 
+trySuccessWithRes :: (Monoid a, GHC.GhcMonad m) => m (SuccessFlag, a) -> m (SuccessFlag, a)
+trySuccessWithRes act =
+    handleSourceError (\e -> do GHC.printException e
+                                return (Failed, mempty))
+      act
+
 -----------------------------------------------------------------------------
 -- :edit
 
@@ -2114,7 +2121,9 @@ doLoad retain_context howmuch = do
              (\_ ->
               liftIO $ do hSetBuffering stdout NoBuffering
                           hSetBuffering stderr NoBuffering) $ \_ -> do
-      ok <- trySuccess $ GHC.load howmuch
+      hmis <- hmiCache <$> getGHCiState
+      (ok, new_cache) <- trySuccessWithRes $ GHC.loadWithCache hmis howmuch
+      modifyGHCiState (\ghci -> ghci { hmiCache = new_cache })
       afterLoad ok retain_context
       return ok
 

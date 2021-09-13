@@ -56,6 +56,7 @@ import GHC.Hs (ImportDecl, GhcPs, GhciLStmt, LHsDecl)
 import GHC.Hs.Utils
 import GHC.Utils.Misc
 import GHC.Utils.Logger
+import GHC.Unit.Home.ModInfo
 
 import GHC.Utils.Exception hiding (uninterruptibleMask, mask, catch)
 import Numeric
@@ -159,8 +160,9 @@ data GHCiState = GHCiState
 
         flushStdHandles :: ForeignHValue,
             -- ^ @hFlush stdout; hFlush stderr@ in the interpreter
-        noBuffering :: ForeignHValue
+        noBuffering :: ForeignHValue,
             -- ^ @hSetBuffering NoBuffering@ for stdin/stdout/stderr
+        hmiCache :: [HomeModInfo]
      }
 
 type TickArray = Array Int [(GHC.BreakIndex,RealSrcSpan)]

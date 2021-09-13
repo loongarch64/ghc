@@ -27,7 +27,7 @@
 -- -----------------------------------------------------------------------------
 module GHC.Driver.Make (
         depanal, depanalE, depanalPartial,
-        load, load', LoadHowMuch(..),
+        load, loadWithCache, load', LoadHowMuch(..),
         instantiationNodes,
 
         downsweep,
@@ -346,11 +346,14 @@ data LoadHowMuch
 -- returns together with the errors an empty ModuleGraph.
 -- After processing this empty ModuleGraph, the errors of depanalE are thrown.
 -- All other errors are reported using the 'defaultWarnErrLogger'.
---
-load :: GhcMonad m => LoadHowMuch -> m SuccessFlag
-load how_much = do
+
+load :: GhcMonad f => LoadHowMuch -> f SuccessFlag
+load how_much = fst <$> loadWithCache [] how_much
+
+loadWithCache :: GhcMonad m => [HomeModInfo] -> LoadHowMuch -> m (SuccessFlag, [HomeModInfo])
+loadWithCache cache how_much = do
     (errs, mod_graph) <- depanalE [] False                        -- #17459
-    success <- load' how_much (Just batchMsg) mod_graph
+    success <- load' cache how_much (Just batchMsg) mod_graph
     if isEmptyMessages errs
       then pure success
       else throwErrors (fmap GhcDriverMessage errs)
@@ -483,8 +486,8 @@ createBuildPlan mod_graph maybe_top_mod =
 -- | Generalized version of 'load' which also supports a custom
 -- 'Messager' (for reporting progress) and 'ModuleGraph' (generally
 -- produced by calling 'depanal'.
-load' :: GhcMonad m => LoadHowMuch -> Maybe Messager -> ModuleGraph -> m SuccessFlag
-load' how_much mHscMessage mod_graph = do
+load' :: GhcMonad m => [HomeModInfo] -> LoadHowMuch -> Maybe Messager -> ModuleGraph -> m (SuccessFlag, [HomeModInfo])
+load' cache how_much mHscMessage mod_graph = do
     modifySession $ \hsc_env -> hsc_env { hsc_mod_graph = mod_graph }
     guessOutputFile
     hsc_env <- getSession
@@ -519,7 +522,7 @@ load' how_much mHscMessage mod_graph = do
             | otherwise = do
                     liftIO $ errorMsg logger
                         (text "no such module:" <+> quotes (ppr m))
-                    return Failed
+                    return (Failed, [])
 
     checkHowMuch how_much $ do
 
@@ -568,11 +571,12 @@ load' how_much mHscMessage mod_graph = do
                     Just n  -> return n
 
     setSession $ hscUpdateHPT (const emptyHomePackageTable) hsc_env
-    (upsweep_ok, hsc_env1) <- withDeferredDiagnostics $
-      liftIO $ upsweep n_jobs hsc_env mHscMessage pruned_hpt direct_deps build_plan
+    (upsweep_ok, hsc_env1, new_cache) <- withDeferredDiagnostics $
+      liftIO $ upsweep n_jobs hsc_env mHscMessage (toCache cache) direct_deps build_plan
     setSession hsc_env1
-    case upsweep_ok of
+    fmap (, new_cache) $ case upsweep_ok of
       Failed -> loadFinish upsweep_ok Succeeded
+
       Succeeded -> do
        -- Make modsDone be the summaries for each home module now
        -- available; this should equal the domain of hpt3.
@@ -921,8 +925,8 @@ withAbstractSem sem = MC.bracket_ (acquireSem sem) (releaseSem sem)
 
 -- | Environment used when compiling a module
 data MakeEnv = MakeEnv { hsc_env :: HscEnv -- The basic HscEnv which will be augmented for each module
-                       , old_hpt :: HomePackageTable -- A cache of old interface files
                        , compile_sem :: AbstractSem
+                       , old_hpt :: M.Map ModuleNameWithIsBoot HomeModInfo -- A cache of old interface files
                        , lqq_var :: TVar LogQueueQueue
                        , env_messager :: Maybe Messager
                        }
@@ -1029,10 +1033,10 @@ upsweep
     :: Int -- ^ The number of workers we wish to run in parallel
     -> HscEnv -- ^ The base HscEnv, which is augmented for each module
     -> Maybe Messager
-    -> HomePackageTable
+    -> M.Map ModuleNameWithIsBoot HomeModInfo
     -> (NodeKey -> [NodeKey]) -- A function which computes the direct dependencies of a NodeKey
     -> [BuildPlan]
-    -> IO (SuccessFlag, HscEnv)
+    -> IO (SuccessFlag, HscEnv, [HomeModInfo])
 upsweep n_jobs hsc_env mHscMessage old_hpt direct_deps build_plan = do
     (cycle, pipelines, collect_result) <- interpretBuildPlan direct_deps build_plan
     runPipelines n_jobs hsc_env old_hpt mHscMessage pipelines
@@ -1047,10 +1051,13 @@ upsweep n_jobs hsc_env mHscMessage old_hpt direct_deps build_plan = do
         Just mss -> do
           let logger = hsc_logger hsc_env
           liftIO $ fatalErrorMsg logger (cyclicModuleErr mss)
-          return (Failed, hsc_env)
+          return (Failed, hsc_env, completed)
         Nothing  -> do
           let success_flag = successIf (all isJust res)
-          return (success_flag, hsc_env')
+          return (success_flag, hsc_env', completed)
+
+toCache :: [HomeModInfo] -> M.Map ModuleNameWithIsBoot HomeModInfo
+toCache hmis = M.fromList ([(mi_mnwib $ hm_iface hmi, hmi) | hmi <- hmis])
 
 upsweep_inst :: HscEnv
              -> Maybe Messager
@@ -1069,34 +1076,16 @@ upsweep_inst hsc_env mHscMessage mod_index nmods iuid = do
 -- successful.  If no compilation happened, return the old Linkable.
 upsweep_mod :: HscEnv
             -> Maybe Messager
-            -> HomePackageTable
+            -> M.Map ModuleNameWithIsBoot HomeModInfo
             -> ModSummary
             -> Int  -- index of module
             -> Int  -- total number of modules
             -> IO HomeModInfo
 upsweep_mod hsc_env mHscMessage old_hpt summary mod_index nmods =  do
-  let old_hmi = lookupHpt old_hpt (ms_mod_name summary)
-
-    -- The old interface is ok if
-    --  a) we're compiling a source file, and the old HPT
-    --     entry is for a source file
-    --  b) we're compiling a hs-boot file
-    -- Case (b) allows an hs-boot file to get the interface of its
-    -- real source file on the second iteration of the compilation
-    -- manager, but that does no harm.  Otherwise the hs-boot file
-    -- will always be recompiled
-
-      mb_old_iface
-        = case old_hmi of
-             Nothing                                        -> Nothing
-             Just hm_info | isBootSummary summary == IsBoot -> Just iface
-                          | mi_boot iface == NotBoot        -> Just iface
-                          | otherwise                       -> Nothing
-                           where
-                             iface = hm_iface hm_info
+  let old_hmi = M.lookup (ms_mnwib summary) old_hpt
 
   hmi <- compileOne' mHscMessage hsc_env summary
-          mod_index nmods mb_old_iface (old_hmi >>= hm_linkable)
+          mod_index nmods (hm_iface <$> old_hmi) (old_hmi >>= hm_linkable)
 
   -- MP: This is a bit janky, because before you add the entries you have to extend the HPT with the module
   -- you just compiled. Another option, would be delay adding anything until after upsweep has finished, but I
@@ -2354,7 +2343,7 @@ label_self thread_name = do
 -- | Build and run a pipeline
 runPipelines :: Int              -- ^ How many capabilities to use
              -> HscEnv           -- ^ The basic HscEnv which is augmented with specific info for each module
-             -> HomePackageTable -- ^ The old HPT which is used as a cache (TODO: The cache should be from the ActionMap)
+             -> M.Map ModuleNameWithIsBoot HomeModInfo -- ^ The old HPT which is used as a cache (TODO: The cache should be from the ActionMap)
              -> Maybe Messager   -- ^ Optional custom messager to use to report progress
              -> [MakeAction]  -- ^ The build plan for all the module nodes
              -> IO ()
