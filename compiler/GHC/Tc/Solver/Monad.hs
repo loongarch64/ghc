@@ -2283,7 +2283,7 @@ breakTyVarCycle_maybe ev cte_result (TyVarLHS lhs_tv) rhs
 
       | otherwise
       = do { arg_redns <- unzipRedns <$> mapM go tys
-           ; return $ mkTyConAppRedn Nominal tc arg_redns }
+           ; return $ mkTyConAppRedn_MightBeSynonym Nominal tc tys arg_redns }
 
     go (Rep.AppTy ty1 ty2)
       = mkAppRedn <$> go ty1 <*> go ty2

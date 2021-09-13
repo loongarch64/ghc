@@ -650,7 +650,7 @@ rewrite_ty_con_app tc tys
        ; ArgsReductions redns kind_co <- rewrite_args_tc tc m_roles tys
        ; let tyconapp_redn
                 = mkHetReduction
-                    (mkTyConAppRedn role tc redns)
+                    (mkTyConAppRedn_MightBeSynonym role tc tys redns)
                     kind_co
        ; return $ homogeniseHetRedn role tyconapp_redn }
 

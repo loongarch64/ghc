@@ -1369,7 +1369,7 @@ normalise_tc_app tc tys
     do { ArgsReductions redns res_co <- normalise_tc_args tc tys
        ; role <- getRole
        ; return $
-            assemble_result role (mkTyConAppRedn role tc redns) res_co }
+            assemble_result role (mkTyConAppRedn_MightBeSynonym role tc tys redns) res_co }
 
   where
     assemble_result :: Role       -- r, ambient role in NormM monad

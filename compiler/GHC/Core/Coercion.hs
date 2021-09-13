@@ -114,6 +114,7 @@ module GHC.Core.Coercion (
         emptyLiftingContext, extendLiftingContext, extendLiftingContextAndInScope,
         liftCoSubstVarBndrUsing, isMappedByLC,
 
+        mkLiftingContext,
         mkSubstLiftingContext, zapLiftingContext,
         substForAllCoBndrUsingLC, lcTCvSubst, lcInScopeSet,
 

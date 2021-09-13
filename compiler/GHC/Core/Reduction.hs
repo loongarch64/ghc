@@ -15,6 +15,7 @@ module GHC.Core.Reduction
      mkGReflLeftRedn, mkGReflLeftMRedn,
      mkAppRedn, mkAppRedns, mkFunRedn,
      mkForAllRedn, mkHomoForAllRedn, mkTyConAppRedn, mkClassPredRedn,
+     mkTyConAppRedn_MightBeSynonym,
      mkProofIrrelRedn, mkReflCoRedn,
      homogeniseHetRedn,
      unzipRedns,
@@ -30,7 +31,7 @@ import GHC.Prelude
 import GHC.Core.Class      ( Class(..) )
 import GHC.Core.Coercion
 import GHC.Core.Predicate  ( mkClassPred )
-import GHC.Core.TyCon      ( TyCon )
+import GHC.Core.TyCon      ( TyCon, expandSynTyCon_maybe )
 import GHC.Core.Type
 
 import GHC.Data.Pair       ( Pair(Pair) )
@@ -42,6 +43,8 @@ import GHC.Types.Var.Set   ( TyCoVarSet )
 import GHC.Utils.Misc      ( HasDebugCallStack, equalLength )
 import GHC.Utils.Outputable
 import GHC.Utils.Panic     ( assertPpr, panic )
+
+import Data.List           ( zipWith4 )
 
 {-
 %************************************************************************
@@ -435,6 +438,21 @@ mkTyConAppRedn :: Role -> TyCon -> Reductions -> Reduction
 mkTyConAppRedn _role tc (Reductions cos tys)
   = mkReduction (mkTyConAppDCo cos) (mkTyConApp tc tys)
 {-# INLINE mkTyConAppRedn #-}
+
+-- | 'TyConAppCo' for 'Reduction's: combines 'mkTyConAppCo' and `mkTyConApp`.
+-- AMG TODO: this is a bit of a hack. 'mkTyConAppCo' handles synomyms by
+-- lifting, but generalising lifting to DCoercions seems hard. So for now we
+-- just call 'liftCoSubst' from here, building appropriate Coercions.
+mkTyConAppRedn_MightBeSynonym :: Role -> TyCon -> [Type] -> Reductions -> Reduction
+mkTyConAppRedn_MightBeSynonym role tc input_tys redns@(Reductions dcos tys)
+  | Just (tv_co_prs, rhs_ty, leftover_cos) <- expandSynTyCon_maybe tc cos
+  = mkReduction (mkCoDCo $ mkAppCos (liftCoSubst role (mkLiftingContext tv_co_prs) rhs_ty) leftover_cos)
+                (mkTyConApp tc tys)
+  | otherwise = mkTyConAppRedn role tc redns
+  where
+    cos = zipWith4 mkDCoCo (tyConRolesX role tc) input_tys tys dcos
+
+
 
 -- | Reduce the arguments of a 'Class' 'TyCon'.
 mkClassPredRedn :: Class -> Reductions -> Reduction
