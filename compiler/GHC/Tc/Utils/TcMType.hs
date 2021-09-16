@@ -1541,12 +1541,15 @@ collect_cand_qtvs_co_dco orig_ty bound dv = (go_co dv, go_dco dv)
            ; collect_cand_qtvs_co orig_ty (bound `extendVarSet` tcv) dv1 co }
 
 
-    go_dco dv ReflDCo               = return dv
-    go_dco dv (TyConAppDCo cos)  = foldlM go_dco dv cos
+    go_dco dv ReflDCo                = return dv
+    go_dco dv CoherenceLeftDCo       = return dv
+    go_dco dv (CoherenceRightDCo co) = go_co dv co
+    go_dco dv (CastDCo dco)          = go_dco dv dco
+    go_dco dv (TyConAppDCo cos)      = foldlM go_dco dv cos
     go_dco dv (AppDCo co1 co2)       = foldlM go_dco dv [co1, co2]
-    go_dco dv AxiomInstDCo = return dv
+    go_dco dv AxiomInstDCo           = return dv
     go_dco dv (TransDCo co1 co2)     = foldlM go_dco dv [co1, co2]
-    go_dco dv (CoVarDCo cv) = go_cv dv cv
+    go_dco dv (CoVarDCo cv)          = go_cv dv cv
 
     go_dco dv (ForAllDCo tcv kind_co co)
       = do { dv1 <- go_co dv kind_co

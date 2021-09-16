@@ -1695,7 +1695,12 @@ freeNamesIfCoercion (IfaceAxiomRuleCo _ax cos)
   = fnList freeNamesIfCoercion cos
 
 freeNamesIfDCoercion :: IfaceDCoercion -> NameSet
-freeNamesIfDCoercion IfaceReflDCo = emptyNameSet
+freeNamesIfDCoercion IfaceReflDCo          = emptyNameSet
+freeNamesIfDCoercion IfaceCoherenceLeftDCo = emptyNameSet
+freeNamesIfDCoercion (IfaceCoherenceRightDCo co)
+  = freeNamesIfCoercion co
+freeNamesIfDCoercion (IfaceCastDCo dco)
+  = freeNamesIfDCoercion dco
 freeNamesIfDCoercion (IfaceTyConAppDCo cos)
   = fnList freeNamesIfDCoercion cos
 freeNamesIfDCoercion (IfaceAppDCo c1 c2)
@@ -1703,8 +1708,8 @@ freeNamesIfDCoercion (IfaceAppDCo c1 c2)
 freeNamesIfDCoercion (IfaceForAllDCo _ kind_co co)
   = freeNamesIfCoercion kind_co &&& freeNamesIfDCoercion co
 freeNamesIfDCoercion (IfaceFreeCoVarDCo _) = emptyNameSet
-freeNamesIfDCoercion (IfaceCoVarDCo _)   = emptyNameSet
-freeNamesIfDCoercion IfaceAxiomInstDCo = emptyNameSet
+freeNamesIfDCoercion (IfaceCoVarDCo _)     = emptyNameSet
+freeNamesIfDCoercion IfaceAxiomInstDCo     = emptyNameSet
 freeNamesIfDCoercion (IfaceTransDCo c1 c2)
   = freeNamesIfDCoercion c1 &&& freeNamesIfDCoercion c2
 freeNamesIfDCoercion (IfaceCoDCo co) = freeNamesIfCoercion co

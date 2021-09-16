@@ -1433,19 +1433,21 @@ tcIfaceCo = go
 tcIfaceDCo :: IfaceDCoercion -> IfL DCoercion
 tcIfaceDCo = go
   where
-    go IfaceReflDCo           = pure ReflDCo
-    go (IfaceTyConAppDCo cs)
-      = TyConAppDCo <$> mapM go cs
-    go (IfaceAppDCo c1 c2)        = AppDCo <$> go c1 <*> go c2
-    go (IfaceForAllDCo tv k c)  = do { k' <- tcIfaceCo k
-                                      ; bindIfaceBndr tv $ \ tv' ->
-                                        ForAllDCo tv' k' <$> go c }
-    go (IfaceCoVarDCo n)          = CoVarDCo <$> go_var n
-    go (IfaceAxiomInstDCo) = pure AxiomInstDCo
-    go (IfaceTransDCo c1 c2)      = TransDCo  <$> go c1
-                                            <*> go c2
-    go (IfaceCoDCo co)            = CoDCo <$> tcIfaceCo co
-    go (IfaceFreeCoVarDCo c)        = pprPanic "tcIfaceDCo:IfaceFreeCoVarDCo" (ppr c)
+    go IfaceReflDCo                = pure ReflDCo
+    go IfaceCoherenceLeftDCo       = pure CoherenceLeftDCo
+    go (IfaceCoherenceRightDCo co) = CoherenceRightDCo <$> tcIfaceCo co
+    go (IfaceCastDCo dco)          = CastDCo <$> go dco
+    go (IfaceTyConAppDCo cs)       = TyConAppDCo <$> mapM go cs
+    go (IfaceAppDCo c1 c2)         = AppDCo <$> go c1 <*> go c2
+    go (IfaceForAllDCo tv k c)     = do { k' <- tcIfaceCo k
+                                        ; bindIfaceBndr tv $ \ tv' ->
+                                            ForAllDCo tv' k' <$> go c }
+    go (IfaceCoVarDCo n)           = CoVarDCo <$> go_var n
+    go (IfaceAxiomInstDCo)         = pure AxiomInstDCo
+    go (IfaceTransDCo c1 c2)       = TransDCo <$> go c1
+                                              <*> go c2
+    go (IfaceCoDCo co)             = CoDCo <$> tcIfaceCo co
+    go (IfaceFreeCoVarDCo c)       = pprPanic "tcIfaceDCo:IfaceFreeCoVarDCo" (ppr c)
 
     go_var :: FastString -> IfL CoVar
     go_var = tcIfaceLclId

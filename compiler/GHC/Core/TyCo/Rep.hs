@@ -1521,11 +1521,12 @@ data DCoercion
   --    -   _ stands for a parameter that is not a Role or Coercion.
 
   -- These ones mirror the shape of types
-  = -- Refl :: _ -> N
-    -- A special case reflexivity for a very common case: Nominal reflexivity
-    -- If you need Representational, use (GRefl Representational ty MRefl)
-    --                               not (SubCo (Refl ty))
+  = -- Refl :: e
     ReflDCo  -- See Note [Refl invariant]
+
+  | CoherenceLeftDCo
+  | CoherenceRightDCo Coercion
+  | CastDCo DCoercion  -- lift CastTy
 
   -- These ones simply lift the correspondingly-named
   -- Type constructors into Coercions
@@ -1955,13 +1956,16 @@ foldTyCo (TyCoFolder { tcf_view       = view
     go_dcos _   []     = mempty
     go_dcos env (c:cs) = go_dco env c `mappend` go_dcos env cs
 
-    go_dco _   ReflDCo            = mempty
-    go_dco env (TyConAppDCo args) = go_dcos env args
-    go_dco env (AppDCo c1 c2)     = go_dco env c1 `mappend` go_dco env c2
-    go_dco env (CoVarDCo cv)      = covar env cv
-    go_dco _   AxiomInstDCo       = mempty
-    go_dco env (TransDCo c1 c2)   = go_dco env c1 `mappend` go_dco env c2
-    go_dco env (CoDCo co)         = go_co env co
+    go_dco _   ReflDCo                = mempty
+    go_dco _   CoherenceLeftDCo       = mempty
+    go_dco env (CoherenceRightDCo co) = go_co env co
+    go_dco env (CastDCo dco)          = go_dco env dco
+    go_dco env (TyConAppDCo args)     = go_dcos env args
+    go_dco env (AppDCo c1 c2)         = go_dco env c1 `mappend` go_dco env c2
+    go_dco env (CoVarDCo cv)          = covar env cv
+    go_dco _   AxiomInstDCo           = mempty
+    go_dco env (TransDCo c1 c2)       = go_dco env c1 `mappend` go_dco env c2
+    go_dco env (CoDCo co)             = go_co env co
     go_dco env (ForAllDCo tv kind_co co)
       = go_co env kind_co `mappend` go_ty env (varType tv)
                           `mappend` go_dco env' co
@@ -2026,14 +2030,17 @@ coercionSize (SubCo co)          = 1 + coercionSize co
 coercionSize (AxiomRuleCo _ cs)  = 1 + sum (map coercionSize cs)
 
 dcoercionSize :: DCoercion -> Int
-dcoercionSize ReflDCo            = 1
-dcoercionSize (TyConAppDCo args) = 1 + sum (map dcoercionSize args)
-dcoercionSize (AppDCo co arg)    = dcoercionSize co + dcoercionSize arg
-dcoercionSize (ForAllDCo _ h co) = 1 + dcoercionSize co + coercionSize h
-dcoercionSize (CoVarDCo _)       = 1
-dcoercionSize AxiomInstDCo       = 1
-dcoercionSize (TransDCo co1 co2) = 1 + dcoercionSize co1 + dcoercionSize co2
-dcoercionSize (CoDCo co)         = 1 + coercionSize co
+dcoercionSize ReflDCo                = 1
+dcoercionSize CoherenceLeftDCo       = 1
+dcoercionSize (CoherenceRightDCo co) = 1 + coercionSize co
+dcoercionSize (CastDCo dco)          = 1 + dcoercionSize dco
+dcoercionSize (TyConAppDCo args)     = 1 + sum (map dcoercionSize args)
+dcoercionSize (AppDCo co arg)        = dcoercionSize co + dcoercionSize arg
+dcoercionSize (ForAllDCo _ h co)     = 1 + dcoercionSize co + coercionSize h
+dcoercionSize (CoVarDCo _)           = 1
+dcoercionSize AxiomInstDCo           = 1
+dcoercionSize (TransDCo co1 co2)     = 1 + dcoercionSize co1 + dcoercionSize co2
+dcoercionSize (CoDCo co)             = 1 + coercionSize co
 
 provSize :: UnivCoProvenance -> Int
 provSize (PhantomProv co)    = 1 + coercionSize co

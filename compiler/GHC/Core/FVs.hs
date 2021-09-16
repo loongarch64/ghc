@@ -398,15 +398,18 @@ orphNamesOfCo (AxiomRuleCo _ cs)    = orphNamesOfCos cs
 orphNamesOfCo (HoleCo _)            = emptyNameSet
 
 orphNamesOfDCo :: DCoercion -> NameSet
-orphNamesOfDCo ReflDCo               = emptyNameSet
-orphNamesOfDCo (TyConAppDCo cos) = orphNamesOfDCos cos
+orphNamesOfDCo ReflDCo                = emptyNameSet
+orphNamesOfDCo CoherenceLeftDCo       = emptyNameSet
+orphNamesOfDCo (CoherenceRightDCo co) = orphNamesOfCo co
+orphNamesOfDCo (CastDCo dco)          = orphNamesOfDCo dco
+orphNamesOfDCo (TyConAppDCo cos)      = orphNamesOfDCos cos
 orphNamesOfDCo (AppDCo co1 co2)       = orphNamesOfDCo co1 `unionNameSet` orphNamesOfDCo co2
 orphNamesOfDCo (ForAllDCo _ kind_co co)
-  = orphNamesOfCo kind_co `unionNameSet` orphNamesOfDCo co
+                                      = orphNamesOfCo kind_co `unionNameSet` orphNamesOfDCo co
 orphNamesOfDCo (CoVarDCo _)           = emptyNameSet
-orphNamesOfDCo AxiomInstDCo = emptyNameSet
+orphNamesOfDCo AxiomInstDCo           = emptyNameSet
 orphNamesOfDCo (TransDCo co1 co2)     = orphNamesOfDCo co1 `unionNameSet` orphNamesOfDCo co2
-orphNamesOfDCo (CoDCo co) = orphNamesOfCo co
+orphNamesOfDCo (CoDCo co)             = orphNamesOfCo co
 
 orphNamesOfProv :: UnivCoProvenance -> NameSet
 orphNamesOfProv (PhantomProv co)    = orphNamesOfCo co

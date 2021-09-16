@@ -34,6 +34,11 @@ mkSubCo :: HasDebugCallStack => Coercion -> Coercion
 mkProofIrrelCo :: Role -> Coercion -> Coercion -> Coercion -> Coercion
 mkAxiomRuleCo :: CoAxiomRule -> [Coercion] -> Coercion
 
+mkTyConAppDCo :: [DCoercion] -> DCoercion
+mkAppDCo :: DCoercion -> DCoercion -> DCoercion
+mkTransDCo :: DCoercion -> DCoercion -> DCoercion
+mkForAllDCo :: TyCoVar -> CoercionN -> DCoercion -> DCoercion
+
 isGReflCo :: Coercion -> Bool
 isReflCo :: Coercion -> Bool
 isReflexiveCo :: Coercion -> Bool

@@ -63,6 +63,10 @@ import {-# SOURCE #-} GHC.Core.Coercion
    , mkAxiomInstCo, mkAppCo, mkGReflCo
    , mkInstCo, mkLRCo, mkTyConAppCo
    , mkCoercionType
+   , mkTyConAppDCo
+   , mkAppDCo
+   , mkForAllDCo
+   , mkTransDCo
    , coercionKind, coercionLKind, coVarKindsTypesRole )
 import {-# SOURCE #-} GHC.Core.TyCo.Ppr ( pprTyVar )
 
@@ -855,18 +859,21 @@ subst_co_dco subst = (go, go_dco)
     go (HoleCo h)            = HoleCo $! go_hole h
 
     go_dco :: DCoercion -> DCoercion
-    go_dco ReflDCo               = ReflDCo
-    go_dco (TyConAppDCo args)    = let args' = map go_dco args
-                                   in  args' `seqList` {-AMG TODO mk-}TyConAppDCo args'
-    go_dco (AppDCo co arg)       = ({-AMG TODO mk-}AppDCo $! go_dco co) $! go_dco arg
+    go_dco ReflDCo                = ReflDCo
+    go_dco CoherenceLeftDCo       = CoherenceLeftDCo
+    go_dco (CoherenceRightDCo co) = CoherenceRightDCo $! go co
+    go_dco (CastDCo dco)          = CastDCo $! go_dco dco
+    go_dco (TyConAppDCo args)     = let args' = map go_dco args
+                                    in  args' `seqList` mkTyConAppDCo args'
+    go_dco (AppDCo co arg)        = (mkAppDCo $! go_dco co) $! go_dco arg
+    go_dco (CoVarDCo cv)          = CoDCo $! substCoVar subst cv
+    go_dco AxiomInstDCo           = AxiomInstDCo
+    go_dco (TransDCo co1 co2)     = (mkTransDCo $! (go_dco co1)) $! (go_dco co2)
+    go_dco (CoDCo co)             = CoDCo $! go co
     go_dco (ForAllDCo tv kind_co co)
       = case substForAllCoBndrUnchecked subst tv kind_co of
          (subst', tv', kind_co') ->
-          (({-AMG TODO mk-}ForAllDCo $! tv') $! kind_co') $! subst_dco subst' co
-    go_dco (CoVarDCo cv)         = CoDCo (substCoVar subst cv)
-    go_dco AxiomInstDCo          = AxiomInstDCo
-    go_dco (TransDCo co1 co2)    = ({-TODO mk-}TransDCo $! (go_dco co1)) $! (go_dco co2)
-    go_dco (CoDCo co)            = CoDCo (go co)
+          ((mkForAllDCo $! tv') $! kind_co') $! subst_dco subst' co
 
     go_prov (PhantomProv kco)    = PhantomProv (go kco)
     go_prov (ProofIrrelProv kco) = ProofIrrelProv (go kco)

@@ -319,19 +319,22 @@ woop fr = (go, go_dco)
                             fr' = fr `delVarSet` tv
 
 
-    go_dco ReflDCo             = IfaceReflDCo
+    go_dco ReflDCo                = IfaceReflDCo
+    go_dco CoherenceLeftDCo       = IfaceCoherenceLeftDCo
+    go_dco (CoherenceRightDCo co) = IfaceCoherenceRightDCo (go co)
+    go_dco (CastDCo dco)          = IfaceCastDCo (go_dco dco)
     go_dco (CoVarDCo cv)
       -- See [TcTyVars in IfaceType] in GHC.Iface.Type
-      | cv `elemVarSet` fr  = IfaceFreeCoVarDCo cv
-      | otherwise           = IfaceCoVarDCo (toIfaceCoVar cv)
-    go_dco (AppDCo co1 co2)     = IfaceAppDCo  (go_dco co1) (go_dco co2)
-    go_dco (TransDCo co1 co2)   = IfaceTransDCo (go_dco co1) (go_dco co2)
-    go_dco AxiomInstDCo         = IfaceAxiomInstDCo
-    go_dco (TyConAppDCo cos)    = IfaceTyConAppDCo (map go_dco cos)
-    go_dco (CoDCo co)           = IfaceCoDCo (go co)
-    go_dco (ForAllDCo tv k co) = IfaceForAllDCo (toIfaceBndr tv)
-                                          (toIfaceCoercionX fr' k)
-                                          (toIfaceDCoercionX fr' co)
+      | cv `elemVarSet` fr        = IfaceFreeCoVarDCo cv
+      | otherwise                 = IfaceCoVarDCo (toIfaceCoVar cv)
+    go_dco (AppDCo co1 co2)       = IfaceAppDCo  (go_dco co1) (go_dco co2)
+    go_dco (TransDCo co1 co2)     = IfaceTransDCo (go_dco co1) (go_dco co2)
+    go_dco AxiomInstDCo           = IfaceAxiomInstDCo
+    go_dco (TyConAppDCo cos)      = IfaceTyConAppDCo (map go_dco cos)
+    go_dco (CoDCo co)             = IfaceCoDCo (go co)
+    go_dco (ForAllDCo tv k co)    = IfaceForAllDCo (toIfaceBndr tv)
+                                                   (toIfaceCoercionX fr' k)
+                                                   (toIfaceDCoercionX fr' co)
                           where
                             fr' = fr `delVarSet` tv
 

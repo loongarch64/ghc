@@ -152,13 +152,16 @@ synonymTyConsOfType ty
      go_co (AxiomRuleCo _ cs)     = go_co_s cs
 
      go_dco ReflDCo                = emptyNameEnv
-     go_dco (TyConAppDCo cs)   = go_dco_s cs
-     go_dco (AppDCo co co')         = go_dco co `plusNameEnv` go_dco co'
-     go_dco (ForAllDCo _ co co')    = go_co co `plusNameEnv` go_dco co'
-     go_dco (CoVarDCo _)            = emptyNameEnv
-     go_dco AxiomInstDCo   = emptyNameEnv
-     go_dco (TransDCo co co')       = go_dco co `plusNameEnv` go_dco co'
-     go_dco (CoDCo co)              = go_co co
+     go_dco CoherenceLeftDCo       = emptyNameEnv
+     go_dco (CoherenceRightDCo co) = go_co co
+     go_dco (CastDCo dco)          = go_dco dco
+     go_dco (TyConAppDCo cs)       = go_dco_s cs
+     go_dco (AppDCo co co')        = go_dco co `plusNameEnv` go_dco co'
+     go_dco (ForAllDCo _ co co')   = go_co co `plusNameEnv` go_dco co'
+     go_dco (CoVarDCo _)           = emptyNameEnv
+     go_dco AxiomInstDCo           = emptyNameEnv
+     go_dco (TransDCo co co')      = go_dco co `plusNameEnv` go_dco co'
+     go_dco (CoDCo co)             = go_co co
 
      go_prov (PhantomProv co)     = go_co co
      go_prov (ProofIrrelProv co)  = go_co co

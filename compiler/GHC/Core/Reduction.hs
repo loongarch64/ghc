@@ -304,11 +304,11 @@ mkCastRedn1 :: Role
             -> CoercionN -- ^ coercion to cast with
             -> Reduction -- ^ rewritten type, with rewriting coercion
             -> Reduction
-mkCastRedn1 r ty cast_co (Reduction co xi)
+mkCastRedn1 r ty cast_co (Reduction dco xi)
   -- co :: ty ~r ty'
   -- return_co :: (ty |> cast_co) ~r (ty' |> cast_co)
   = mkReduction
-      (CoDCo (castCoercionKind1 (mkDCoCo r ty xi co) r ty xi cast_co))  -- AMG TODO: make a DCo version of this?
+      (castDCoercionKind1 dco r ty xi cast_co)
       (mkCastTy xi cast_co)
 {-# INLINE mkCastRedn1 #-}
 
@@ -327,7 +327,7 @@ mkCastRedn2 :: Role
             -> Reduction
 mkCastRedn2 r ty cast_co (Reduction nco nty) cast_co'
   = mkReduction
-      (CoDCo (castCoercionKind2 (mkDCoCo r ty nty nco) r ty nty cast_co cast_co'))  -- AMG TODO: make a DCo version of this?
+      (castDCoercionKind2 nco r ty nty cast_co cast_co')
       (mkCastTy nty cast_co')
 {-# INLINE mkCastRedn2 #-}
 

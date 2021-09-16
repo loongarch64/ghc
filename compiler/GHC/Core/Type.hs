@@ -271,6 +271,10 @@ import {-# SOURCE #-} GHC.Core.Coercion
    , mkForAllCo, mkFunCo, mkAxiomInstCo, mkUnivCo
    , mkSymCo, mkTransCo, mkNthCo, mkLRCo, mkInstCo
    , mkKindCo, mkSubCo
+   , mkTyConAppDCo
+   , mkAppDCo
+   , mkForAllDCo
+   , mkTransDCo
    , decomposePiCos, coercionKind, coercionLKind
    , coercionRKind, coercionType
    , isReflexiveCo, seqCo )
@@ -579,19 +583,25 @@ expandTypeSynonyms ty
 
     go_dco _     ReflDCo
       = ReflDCo
-    go_dco subst (TyConAppDCo args)  -- AMG TODO clean up the following
-      = {-mk-}TyConAppDCo (map (go_dco subst) args)
+    go_dco _     CoherenceLeftDCo
+      = CoherenceLeftDCo
+    go_dco subst (CoherenceRightDCo co)
+      = CoherenceRightDCo (go_co subst co)
+    go_dco subst (CastDCo dco)
+      = CastDCo (go_dco subst dco)
+    go_dco subst (TyConAppDCo args)
+      = mkTyConAppDCo (map (go_dco subst) args)
     go_dco subst (AppDCo co arg)
-      = {-mk-}AppDCo (go_dco subst co) (go_dco subst arg)
+      = mkAppDCo (go_dco subst co) (go_dco subst arg)
     go_dco subst (ForAllDCo tv kind_co co)
       = let (subst', tv', kind_co') = go_cobndr subst tv kind_co in
-        {-mk-}ForAllDCo tv' kind_co' (go_dco subst' co)
+        mkForAllDCo tv' kind_co' (go_dco subst' co)
     go_dco subst (CoVarDCo cv)
       = CoDCo (substCoVar subst cv)
     go_dco _     AxiomInstDCo
       = AxiomInstDCo
     go_dco subst (TransDCo co1 co2)
-      = {-mk-}TransDCo (go_dco subst co1) (go_dco subst co2)
+      = mkTransDCo (go_dco subst co1) (go_dco subst co2)
     go_dco subst (CoDCo co) = CoDCo (go_co subst co)
 
     go_prov subst (PhantomProv co)    = PhantomProv (go_co subst co)
@@ -932,12 +942,15 @@ mapTyCoX (TyCoMapper { tcm_tyvar = tyvar
     go_dcos _   []       = return []
     go_dcos env (co:cos) = (:) <$> go_dco env co <*> go_dcos env cos
 
-    go_dco _   ReflDCo          = pure ReflDCo
-    go_dco env (AppDCo c1 c2)   = AppDCo <$> go_dco env c1 <*> go_dco env c2
-    go_dco env (CoVarDCo cv)    = CoDCo <$> covar env cv
-    go_dco env (TransDCo c1 c2) = TransDCo <$> go_dco env c1 <*> go_dco env c2
-    go_dco _   AxiomInstDCo     = pure AxiomInstDCo
-    go_dco env (CoDCo co)       = CoDCo <$> go_co env co
+    go_dco _   ReflDCo                = pure ReflDCo
+    go_dco _   CoherenceLeftDCo       = pure CoherenceLeftDCo
+    go_dco env (CoherenceRightDCo co) = CoherenceRightDCo <$> go_co env co
+    go_dco env (CastDCo dco)          = CastDCo <$> go_dco env dco
+    go_dco env (AppDCo c1 c2)         = AppDCo <$> go_dco env c1 <*> go_dco env c2
+    go_dco env (CoVarDCo cv)          = CoDCo <$> covar env cv
+    go_dco env (TransDCo c1 c2)       = TransDCo <$> go_dco env c1 <*> go_dco env c2
+    go_dco _   AxiomInstDCo           = pure AxiomInstDCo
+    go_dco env (CoDCo co)             = CoDCo <$> go_co env co
     go_dco env co@(TyConAppDCo cos)
       -- Not a TcTyCon
       | null cos    -- Avoid allocation in this very
@@ -3181,13 +3194,16 @@ occCheckExpand vs_to_avoid ty
                                              ; return (mkAxiomRuleCo ax cs') }
 
     ------------------
-    go_dco _   ReflDCo                 = pure ReflDCo
+    go_dco _   ReflDCo                = pure ReflDCo
+    go_dco _   CoherenceLeftDCo       = pure CoherenceLeftDCo
+    go_dco cxt (CoherenceRightDCo co) = CoherenceRightDCo <$> go_co cxt co
+    go_dco cxt (CastDCo dco)          = CastDCo <$> go_dco cxt dco
       -- Note: Coercions do not contain type synonyms
-    go_dco cxt (TyConAppDCo args)    = do { args' <- mapM (go_dco cxt) args
-                                             ; return (TyConAppDCo args') }
-    go_dco cxt (AppDCo co arg)            = do { co' <- go_dco cxt co
-                                             ; arg' <- go_dco cxt arg
-                                             ; return (AppDCo co' arg') }
+    go_dco cxt (TyConAppDCo args)     = do { args' <- mapM (go_dco cxt) args
+                                           ; return (TyConAppDCo args') }
+    go_dco cxt (AppDCo co arg)        = do { co' <- go_dco cxt co
+                                           ; arg' <- go_dco cxt arg
+                                           ; return (AppDCo co' arg') }
     go_dco cxt@(as, env) (ForAllDCo tv kind_co body_co)
       = do { kind_co' <- go_co cxt kind_co
            ; let tv' = setVarType tv $
@@ -3197,14 +3213,14 @@ occCheckExpand vs_to_avoid ty
            ; body' <- go_dco (as', env') body_co
            ; return (ForAllDCo tv' kind_co' body') }
     go_dco (as,env) co@(CoVarDCo c)
-      | Just c' <- lookupVarEnv env c   = return (CoDCo (mkCoVarCo c'))
-      | bad_var_occ as c                = Nothing
-      | otherwise                       = return co
+      | Just c' <- lookupVarEnv env c = return (CoDCo (mkCoVarCo c'))
+      | bad_var_occ as c              = Nothing
+      | otherwise                     = return co
 
-    go_dco _   AxiomInstDCo = pure AxiomInstDCo
-    go_dco cxt (TransDCo co1 co2)         = do { co1' <- go_dco cxt co1
-                                             ; co2' <- go_dco cxt co2
-                                             ; return (TransDCo co1' co2') }
+    go_dco _   AxiomInstDCo           = pure AxiomInstDCo
+    go_dco cxt (TransDCo co1 co2)     = do { co1' <- go_dco cxt co1
+                                           ; co2' <- go_dco cxt co2
+                                           ; return (TransDCo co1' co2') }
     go_dco cxt (CoDCo co) = CoDCo <$> go_co cxt co
 
     ------------------
@@ -3264,8 +3280,11 @@ tyConsOfType ty
      go_mco MRefl    = emptyUniqSet
      go_mco (MCo co) = go_co co
 
-     go_dco ReflDCo                 = emptyUniqSet
-     go_dco (TyConAppDCo args)      = go_dcos args
+     go_dco ReflDCo                  = emptyUniqSet
+     go_dco CoherenceLeftDCo         = emptyUniqSet
+     go_dco (CoherenceRightDCo co)   = go_co co
+     go_dco (CastDCo dco)            = go_dco dco
+     go_dco (TyConAppDCo args)       = go_dcos args
      go_dco (AppDCo co arg)          = go_dco co `unionUniqSets` go_dco arg
      go_dco (ForAllDCo _ kind_co co) = go_co kind_co `unionUniqSets` go_dco co
      go_dco AxiomInstDCo             = emptyUniqSet

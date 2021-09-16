@@ -671,16 +671,18 @@ tyCoFVsOfDCos []       fv_cand in_scope acc = emptyFV fv_cand in_scope acc
 tyCoFVsOfDCos (co:cos) fv_cand in_scope acc = (tyCoFVsOfDCo co `unionFV` tyCoFVsOfDCos cos) fv_cand in_scope acc
 
 tyCoFVsOfDCo :: DCoercion -> FV
-tyCoFVsOfDCo ReflDCo            fv_cand in_scope acc = emptyFV fv_cand in_scope acc
-tyCoFVsOfDCo (TyConAppDCo dcos) fv_cand in_scope acc = tyCoFVsOfDCos dcos fv_cand in_scope acc
-tyCoFVsOfDCo (AppDCo dco1 dco2) fv_cand in_scope acc = (tyCoFVsOfDCo dco1 `unionFV` tyCoFVsOfDCo dco2) fv_cand in_scope acc
+tyCoFVsOfDCo ReflDCo                fv_cand in_scope acc = emptyFV fv_cand in_scope acc
+tyCoFVsOfDCo CoherenceLeftDCo       fv_cand in_scope acc = emptyFV fv_cand in_scope acc
+tyCoFVsOfDCo (CoherenceRightDCo co) fv_cand in_scope acc = tyCoFVsOfCo co fv_cand in_scope acc
+tyCoFVsOfDCo (CastDCo dco)          fv_cand in_scope acc = tyCoFVsOfDCo dco fv_cand in_scope acc
+tyCoFVsOfDCo (TyConAppDCo dcos)     fv_cand in_scope acc = tyCoFVsOfDCos dcos fv_cand in_scope acc
+tyCoFVsOfDCo (AppDCo dco1 dco2)     fv_cand in_scope acc = (tyCoFVsOfDCo dco1 `unionFV` tyCoFVsOfDCo dco2) fv_cand in_scope acc
 tyCoFVsOfDCo (ForAllDCo tv kind_co co) fv_cand in_scope acc
   = (tyCoFVsVarBndr tv (tyCoFVsOfDCo co) `unionFV` tyCoFVsOfCo kind_co) fv_cand in_scope acc
-tyCoFVsOfDCo (CoVarDCo v) fv_cand in_scope acc
-  = tyCoFVsOfCoVar v fv_cand in_scope acc
-tyCoFVsOfDCo AxiomInstDCo        fv_cand in_scope acc = emptyFV fv_cand in_scope acc
+tyCoFVsOfDCo (CoVarDCo v)         fv_cand in_scope acc = tyCoFVsOfCoVar v fv_cand in_scope acc
+tyCoFVsOfDCo AxiomInstDCo         fv_cand in_scope acc = emptyFV fv_cand in_scope acc
 tyCoFVsOfDCo (TransDCo dco1 dco2) fv_cand in_scope acc = (tyCoFVsOfDCo dco1 `unionFV` tyCoFVsOfDCo dco2) fv_cand in_scope acc
-tyCoFVsOfDCo (CoDCo co)          fv_cand in_scope acc = tyCoFVsOfCo co fv_cand in_scope acc
+tyCoFVsOfDCo (CoDCo co)           fv_cand in_scope acc = tyCoFVsOfCo co fv_cand in_scope acc
 
 ----- Whether a covar is /Almost Devoid/ in a type or coercion ----
 
@@ -751,7 +753,12 @@ almost_devoid_co_var_of_dcos (co:cos) cv
   && almost_devoid_co_var_of_dcos cos cv
 
 almost_devoid_co_var_of_dco :: DCoercion -> CoVar -> Bool
-almost_devoid_co_var_of_dco ReflDCo{} _ = True
+almost_devoid_co_var_of_dco ReflDCo _ = True
+almost_devoid_co_var_of_dco CoherenceLeftDCo _ = True
+almost_devoid_co_var_of_dco (CoherenceRightDCo co) cv
+  = almost_devoid_co_var_of_co co cv
+almost_devoid_co_var_of_dco (CastDCo dco) cv
+  = almost_devoid_co_var_of_dco dco cv
 almost_devoid_co_var_of_dco (TyConAppDCo cos) cv
   = almost_devoid_co_var_of_dcos cos cv
 almost_devoid_co_var_of_dco (AppDCo co arg) cv

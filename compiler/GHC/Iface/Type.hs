@@ -394,6 +394,9 @@ data IfaceCoercion
 
 data IfaceDCoercion
   = IfaceReflDCo
+  | IfaceCoherenceLeftDCo
+  | IfaceCoherenceRightDCo IfaceCoercion
+  | IfaceCastDCo IfaceDCoercion
   | IfaceTyConAppDCo  [IfaceDCoercion]
   | IfaceAppDCo       IfaceDCoercion IfaceDCoercion
   | IfaceForAllDCo    IfaceBndr IfaceCoercion IfaceDCoercion
@@ -604,15 +607,18 @@ substIfaceType env ty
     go_co (IfaceSubCo co)            = IfaceSubCo (go_co co)
     go_co (IfaceAxiomRuleCo n cos)   = IfaceAxiomRuleCo n (go_cos cos)
 
-    go_dco IfaceReflDCo            = IfaceReflDCo
-    go_dco (IfaceTyConAppDCo cos)  = IfaceTyConAppDCo (go_dcos cos)
-    go_dco (IfaceAppDCo c1 c2)     = IfaceAppDCo (go_dco c1) (go_dco c2)
-    go_dco (IfaceForAllDCo {})     = pprPanic "substIfaceCoercion" (ppr ty)
-    go_dco (IfaceFreeCoVarDCo cv)  = IfaceFreeCoVarDCo cv
-    go_dco (IfaceCoVarDCo cv)      = IfaceCoVarDCo cv
-    go_dco (IfaceAxiomInstDCo)     = IfaceAxiomInstDCo
-    go_dco (IfaceTransDCo co1 co2) = IfaceTransDCo (go_dco co1) (go_dco co2)
-    go_dco (IfaceCoDCo co)         = IfaceCoDCo (go_co co)
+    go_dco IfaceReflDCo                = IfaceReflDCo
+    go_dco IfaceCoherenceLeftDCo       = IfaceCoherenceLeftDCo
+    go_dco (IfaceCoherenceRightDCo co) = IfaceCoherenceRightDCo (go_co co)
+    go_dco (IfaceCastDCo dco)          = IfaceCastDCo (go_dco dco)
+    go_dco (IfaceTyConAppDCo cos)      = IfaceTyConAppDCo (go_dcos cos)
+    go_dco (IfaceAppDCo c1 c2)         = IfaceAppDCo (go_dco c1) (go_dco c2)
+    go_dco (IfaceForAllDCo {})         = pprPanic "substIfaceCoercion" (ppr ty)
+    go_dco (IfaceFreeCoVarDCo cv)      = IfaceFreeCoVarDCo cv
+    go_dco (IfaceCoVarDCo cv)          = IfaceCoVarDCo cv
+    go_dco (IfaceAxiomInstDCo)         = IfaceAxiomInstDCo
+    go_dco (IfaceTransDCo co1 co2)     = IfaceTransDCo (go_dco co1) (go_dco co2)
+    go_dco (IfaceCoDCo co)             = IfaceCoDCo (go_co co)
 
     go_cos = map go_co
     go_dcos = map go_dco
@@ -1769,6 +1775,13 @@ pprParendIfaceDCoercion = ppr_dco appPrec
 
 ppr_dco :: PprPrec -> IfaceDCoercion -> SDoc
 ppr_dco _         IfaceReflDCo = text "Refl"
+ppr_dco _         IfaceCoherenceLeftDCo = text "CoherenceLeft"
+ppr_dco ctxt_prec (IfaceCoherenceRightDCo co)
+  = maybeParen ctxt_prec appPrec $
+    text "CoherenceRight" <+> pprParendIfaceCoercion co
+ppr_dco ctxt_prec (IfaceCastDCo dco)
+  = maybeParen ctxt_prec appPrec $
+    text "Cast" <+> pprParendIfaceDCoercion dco
 ppr_dco ctxt_prec (IfaceTyConAppDCo cos)
   = ppr_special_dco ctxt_prec (text "TyConApp") cos
 ppr_dco ctxt_prec (IfaceAppDCo co1 co2)
@@ -2171,6 +2184,11 @@ instance Binary IfaceCoercion where
 instance Binary IfaceDCoercion where
   put_ bh IfaceReflDCo = do
           putByte bh 1
+  put_ bh IfaceCoherenceLeftDCo = do
+          putByte bh 2
+  put_ bh (IfaceCoherenceRightDCo a) = do
+          putByte bh 3
+          put_ bh a
   put_ bh (IfaceTyConAppDCo a) = do
           putByte bh 4
           put_ bh a
@@ -2188,6 +2206,9 @@ instance Binary IfaceDCoercion where
           put_ bh a
   put_ bh IfaceAxiomInstDCo = do
           putByte bh 8
+  put_ bh (IfaceCastDCo a) = do
+          putByte bh 9
+          put_ bh a
   put_ bh (IfaceTransDCo a b) = do
           putByte bh 11
           put_ bh a
@@ -2203,6 +2224,9 @@ instance Binary IfaceDCoercion where
       tag <- getByte bh
       case tag of
            1 -> return IfaceReflDCo
+           2 -> return IfaceCoherenceLeftDCo
+           3 -> do a <- get bh
+                   return $ IfaceCoherenceRightDCo a
            4 -> do a <- get bh
                    return $ IfaceTyConAppDCo a
            5 -> do a <- get bh
@@ -2215,6 +2239,8 @@ instance Binary IfaceDCoercion where
            7 -> do a <- get bh
                    return $ IfaceCoVarDCo a
            8 -> return IfaceAxiomInstDCo
+           9 -> do a <- get bh
+                   return $ IfaceCastDCo a
            11-> do a <- get bh
                    b <- get bh
                    return $ IfaceTransDCo a b

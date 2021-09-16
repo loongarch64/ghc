@@ -55,11 +55,14 @@ module GHC.Core.Coercion (
         mkHomoForAllDCos,
         mkGReflLeftDCo,
         mkGReflRightDCo,
+        mkCoherenceLeftDCo,
         mkCoherenceRightDCo,
         mkCoherenceRightMDCo,
         mkTransDCo,
         mkDCoCo,
         mkCoDCo,
+        castDCoercionKind1,
+        castDCoercionKind2,
 
         mkHeteroCoercionType,
         mkPrimEqPred, mkReprPrimEqPred, mkPrimEqPredRole,
@@ -945,41 +948,38 @@ mkProofIrrelDCo _ _ _ _ = error "TODO"
 -- | Given @ty :: k1@, @co :: k1 ~ k2@,
 -- produces @co' :: ty ~r (ty |> co)@
 mkGReflRightDCo :: Role -> Type -> CoercionN -> DCoercion
-mkGReflRightDCo r ty co
+mkGReflRightDCo _r _ty co   -- AMG TODO: drop args?
   | isGReflCo co = mkReflDCo
-  | otherwise    = mkCoDCo (mkGReflRightCo r ty co) -- AMG TODO
-{-
-  | isGReflCo co = mkReflCo r ty
     -- the kinds of @k1@ and @k2@ are the same, thus @isGReflCo@
     -- instead of @isReflCo@
-  | otherwise = GRefl r ty (MCo co)
--}
+  | otherwise    = CoherenceRightDCo co
 
 -- | Given @ty :: k1@, @co :: k1 ~ k2@,
 -- produces @co' :: (ty |> co) ~r ty@
 mkGReflLeftDCo :: Role -> Type -> CoercionN -> DCoercion
-mkGReflLeftDCo r ty co
+mkGReflLeftDCo _r _ty co -- AMG TODO: drop args?
   | isGReflCo co = mkReflDCo
-  | otherwise    = mkCoDCo (mkGReflLeftCo r ty co) -- AMG TODO
-{-
-  | isGReflCo co = mkReflCo r ty
     -- the kinds of @k1@ and @k2@ are the same, thus @isGReflCo@
     -- instead of @isReflCo@
-  | otherwise    = mkSymCo $ GRefl r ty (MCo co)
--}
+  | otherwise    = CoherenceLeftDCo
+
+-- | Given @ty :: k1@, @co :: k1 ~ k2@, @co2:: ty ~r ty'@,
+-- produces @co' :: (ty |> co) ~r ty'
+-- It is not only a utility function, but it saves allocation when co
+-- is a GRefl coercion.
+mkCoherenceLeftDCo :: Role -> Type -> CoercionN -> DCoercion -> DCoercion
+mkCoherenceLeftDCo _r _ty co co2 -- AMG TODO: drop args
+  | isGReflCo co = co2
+  | otherwise    = CoherenceLeftDCo `mkTransDCo` co2
 
 -- | Given @ty :: k1@, @co :: k1 ~ k2@, @co2:: ty' ~r ty@,
 -- produces @co' :: ty' ~r (ty |> co)
 -- It is not only a utility function, but it saves allocation when co
 -- is a GRefl coercion.
 mkCoherenceRightDCo :: Role -> Type -> CoercionN -> DCoercion -> DCoercion
-mkCoherenceRightDCo r ty co co2
+mkCoherenceRightDCo _r _ty co co2 -- AMG TODO: drop args?
   | isGReflCo co = co2
-  | otherwise    = co2 `mkTransDCo` mkGReflRightDCo r ty co -- AMG TODO
-{-
-  | isGReflCo co = co2
-  | otherwise    = co2 `mkTransCo` GRefl r ty (MCo co)
--}
+  | otherwise    = co2 `mkTransDCo` CoherenceRightDCo co
 
 -- | Like 'mkCoherenceRightDCo', but with an 'MCoercion'
 mkCoherenceRightMDCo :: Role -> Type -> MCoercionN -> DCoercion -> DCoercion
@@ -1739,6 +1739,36 @@ instCoercions g ws
       = do { g' <- instCoercion g_tys g w
            ; return (piResultTy <$> g_tys <*> w_tys, g') }
 
+
+-- | Creates a new coercion with both of its types casted by different casts
+-- @castCoercionKind2 g r t1 t2 h1 h2@, where @g :: t1 ~r t2@,
+-- has type @(t1 |> h1) ~r (t2 |> h2)@.
+-- @h1@ and @h2@ must be nominal.
+castDCoercionKind2 :: DCoercion -> Role -> Type -> Type
+                   -> CoercionN -> CoercionN -> DCoercion
+castDCoercionKind2 g r t1 t2 h1 h2
+  = mkCoherenceRightDCo r t2 h2 (mkCoherenceLeftDCo r t1 h1 g)
+
+-- | @castCoercionKind1 g r t1 t2 h@ = @coercionKind g r t1 t2 h h@
+-- That is, it's a specialised form of castCoercionKind, where the two
+--          kind coercions are identical
+-- @castCoercionKind1 g r t1 t2 h@, where @g :: t1 ~r t2@,
+-- has type @(t1 |> h) ~r (t2 |> h)@.
+-- @h@ must be nominal.
+-- See Note [castCoercionKind1]
+castDCoercionKind1 :: DCoercion -> Role -> Type -> Type
+                  -> CoercionN -> DCoercion
+castDCoercionKind1 g r t1 t2 h
+  = {-case g of -- AMG TODO
+      Refl {} -> assert (r == Nominal) $ -- Refl is always Nominal
+                 mkNomReflCo (mkCastTy t2 h)
+      GRefl _ _ mco -> case mco of
+           MRefl       -> mkReflCo r (mkCastTy t2 h)
+           MCo kind_co -> GRefl r (mkCastTy t1 h) $
+                          MCo (mkSymCo h `mkTransCo` kind_co `mkTransCo` h)
+      _ -> -} castDCoercionKind2 g r t1 t2 h h
+
+
 -- | Creates a new coercion with both of its types casted by different casts
 -- @castCoercionKind2 g r t1 t2 h1 h2@, where @g :: t1 ~r t2@,
 -- has type @(t1 |> h1) ~r (t2 |> h2)@.
@@ -2493,15 +2523,18 @@ seqCo (SubCo co)                = seqCo co
 seqCo (AxiomRuleCo _ cs)        = seqCos cs
 
 seqDCo :: DCoercion -> ()
-seqDCo  ReflDCo                 = ()
+seqDCo  ReflDCo               = ()
+seqDCo CoherenceLeftDCo       = ()
+seqDCo (CoherenceRightDCo co) = seqCo co
+seqDCo (CastDCo dco)          = seqDCo dco
 seqDCo (TyConAppDCo  cos)     = seqDCos cos
-seqDCo (AppDCo co1 co2)           = seqDCo co1 `seq` seqDCo co2
-seqDCo (ForAllDCo tv k co)        = seqType (varType tv) `seq` seqCo k
-                                                       `seq` seqDCo co
-seqDCo (CoVarDCo cv)              = cv `seq` ()
-seqDCo AxiomInstDCo = ()
-seqDCo (TransDCo co1 co2)         = seqDCo co1 `seq` seqDCo co2
-seqDCo (CoDCo co) = seqCo co
+seqDCo (AppDCo co1 co2)       = seqDCo co1 `seq` seqDCo co2
+seqDCo (ForAllDCo tv k co)    = seqType (varType tv) `seq` seqCo k
+                                                     `seq` seqDCo co
+seqDCo (CoVarDCo cv)          = cv `seq` ()
+seqDCo AxiomInstDCo           = ()
+seqDCo (TransDCo co1 co2)     = seqDCo co1 `seq` seqDCo co2
+seqDCo (CoDCo co)             = seqCo co
 
 seqProv :: UnivCoProvenance -> ()
 seqProv (PhantomProv co)    = seqCo co
