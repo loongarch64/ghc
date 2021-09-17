@@ -304,7 +304,7 @@ a Predicate type.
 
 Note [Weird typing rule for ForAllTy]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Here is the typing rule for ForAllTy:
+Here are the typing rules for ForAllTy:
 
 tyvar : Type
 inner : TYPE r
@@ -316,9 +316,16 @@ inner : TYPE r
 ------------------------------------
 ForAllTy (Bndr covar vis) inner : Type
 
-Note that when inside the binder is a tyvar, neither the inner type nor for
-ForAllTy itself have to have kind *! But, it means that we should push any kind
-casts through the ForAllTy. The only trouble is avoiding capture.
+Note that the kind of the result depends on whether the binder is a
+tyvar or a covar. The kind of a forall-over-tyvar is the same as
+the kind of the inner type. This is because quantification over types
+is erased before runtime. By contrast, the kind of a forall-over-covar
+is always Type, because a forall-over-covar is compiled into a function
+taking a 0-bit-wide erased coercion argument.
+
+Because the tyvar form above includes r in its result, we must
+be careful not to let any variables escape -- thus the last premise
+of the rule above.
 
 Note [Constraints in kinds]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

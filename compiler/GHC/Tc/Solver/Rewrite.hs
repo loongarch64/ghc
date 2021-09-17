@@ -470,28 +470,28 @@ rewrite_args_slow binders inner_ki fvs roles tys
 -- a Derived rewriting a Derived. The solution would be to generate evidence for
 -- Deriveds, thus avoiding this whole noBogusCoercions idea. See also
 -- Note [No derived kind equalities]
-  = do { rewritten_args <- zipWith3M fl (map isNamedBinder binders ++ repeat True)
+  = do { rewritten_args <- zipWith3M rw (map isNamedBinder binders ++ repeat True)
                                         roles tys
        ; return $ simplifyArgsWorker binders inner_ki fvs roles rewritten_args }
   where
-    {-# INLINE fl #-}
-    fl :: Bool   -- must we ensure to produce a real coercion here?
+    {-# INLINE rw #-}
+    rw :: Bool   -- must we ensure to produce a real coercion here?
                  -- see comment at top of function
        -> Role -> Type -> RewriteM Reduction
-    fl True  r ty = noBogusCoercions $ fl1 r ty
-    fl False r ty =                    fl1 r ty
+    rw True  r ty = noBogusCoercions $ rw1 r ty
+    rw False r ty =                    rw1 r ty
 
-    {-# INLINE fl1 #-}
-    fl1 :: Role -> Type -> RewriteM Reduction
-    fl1 Nominal ty
+    {-# INLINE rw1 #-}
+    rw1 :: Role -> Type -> RewriteM Reduction
+    rw1 Nominal ty
       = setEqRel NomEq $
         rewrite_one ty
 
-    fl1 Representational ty
+    rw1 Representational ty
       = setEqRel ReprEq $
         rewrite_one ty
 
-    fl1 Phantom ty
+    rw1 Phantom ty
     -- See Note [Phantoms in the rewriter]
       = do { ty <- liftTcS $ zonkTcType ty
            ; return $ mkReflRedn Phantom ty }

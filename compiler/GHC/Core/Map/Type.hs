@@ -133,7 +133,7 @@ xtC (D env co) f (CoercionMapX m)
 type TypeMapG = GenMap TypeMapX
 
 -- | @TypeMapX a@ is the base map from @DeBruijn Type@ to @a@, but without the
--- 'GenMap' optimization.
+-- 'GenMap' optimization. See Note [Computing equality on types] in GHC.Core.Type.
 data TypeMapX a
   = TM { tm_var    :: VarMap a
        , tm_app    :: TypeMapG (TypeMapG a)  -- Note [Equality on AppTys] in GHC.Core.Type
