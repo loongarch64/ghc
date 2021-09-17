@@ -47,7 +47,7 @@ Note [Mapping Info Tables to Source Positions]
 As return frames are stack represented, needed information can be provided by emitting an IPE
 for every stack represented info table.
 
-This leads to the question: How to figure out the source location of an return frame?
+This leads to the question: How to figure out the source location of a return frame?
 
 The lookup algorithms for registerised and unregisterised builds differ in details, they have in
 common, that we want to lookup the `CmmNode.CmmTick` (containing a `SourceNote`) that is nearest
@@ -98,7 +98,7 @@ In code the Cmm programm is represented as Hoopl graph. Hoopl distinguishes node
 are open or closed on entry (one can fallthrough to them from the previous instruction) and if they are
 open or closed on exit (one can fallthrough from them to the next node).
 
-Please refer to the paper "Hoopl: A Modular, Reusable Library forDataflow Analysis and Transformation"
+Please refer to the paper "Hoopl: A Modular, Reusable Library for Dataflow Analysis and Transformation"
 for a detailed explanation.
 
 Here we use the fact, that calls (represented by `CmmNode.CmmCall`) are always closed on exit
@@ -117,7 +117,7 @@ sure as there are e.g. update frames, too) with it's label (`c18g` in the exampl
 Unregisterised
 ~~~~~~~~~~~~~
 
-In unregisterised builds there is no return frame / continuation label in calls. The contiuation (i.e. return
+In unregisterised builds there is no return frame / continuation label in calls. The continuation (i.e. return
 frame) is set in an explicit Cmm assignment. Thus the tick lookup algorithm has to be slightly different.
 
 ```
