@@ -41,6 +41,7 @@ module GHC.Core.TyCo.Subst
         substTys, substScaledTys, substTheta,
         lookupTyVar,
         substCo, substCos, substCoVar, substCoVars, lookupCoVar,
+        substDCo,
         cloneTyVarBndr, cloneTyVarBndrs,
         substVarBndr, substVarBndrs,
         substTyVarBndr, substTyVarBndrs,
@@ -789,6 +790,14 @@ lookupTyVar :: TCvSubst -> TyVar  -> Maybe Type
 lookupTyVar (TCvSubst _ tenv _) tv
   = assert (isTyVar tv )
     lookupVarEnv tenv tv
+
+-- | Substitute within a 'DCoercion'
+-- The substitution has to satisfy the invariants described in
+-- Note [The substitution invariant].
+substDCo :: HasDebugCallStack => TCvSubst -> DCoercion -> DCoercion
+substDCo subst dco
+  | isEmptyTCvSubst subst = dco
+  | otherwise = {- checkValidSubst subst [] [dco] $ -}  subst_dco subst dco -- AMG TODO
 
 -- | Substitute within a 'Coercion'
 -- The substitution has to satisfy the invariants described in
