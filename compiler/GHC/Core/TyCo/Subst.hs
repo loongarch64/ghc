@@ -830,7 +830,7 @@ subst_co_dco subst = (go, go_dco)
 
     go_mco :: MCoercion -> MCoercion
     go_mco MRefl    = MRefl
-    go_mco (MCo co) = MCo (go co)
+    go_mco (MCo co) = MCo $! go co
 
     go :: Coercion -> Coercion
     go (Refl ty)             = mkNomReflCo $! (go_ty ty)
@@ -875,9 +875,9 @@ subst_co_dco subst = (go, go_dco)
          (subst', tv', kind_co') ->
           ((mkForAllDCo $! tv') $! kind_co') $! subst_dco subst' co
 
-    go_prov (PhantomProv kco)    = PhantomProv (go kco)
-    go_prov (ProofIrrelProv kco) = ProofIrrelProv (go kco)
-    go_prov (DCoProv dco)        = DCoProv (go_dco dco)
+    go_prov (PhantomProv kco)    = PhantomProv $! go kco
+    go_prov (ProofIrrelProv kco) = ProofIrrelProv $! go kco
+    go_prov (DCoProv dco)        = DCoProv $! go_dco dco
     go_prov p@(PluginProv _)     = p
     go_prov p@(CorePrepProv _)   = p
 
