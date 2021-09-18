@@ -48,10 +48,13 @@ import GHC.Types.Var.Env
 import GHC.Types.Unique.FM
 import GHC.Utils.Outputable
 
+import GHC.Utils.Panic
+
 import qualified Data.Map    as Map
 import qualified Data.IntMap as IntMap
 
 import Control.Monad ( (>=>) )
+import GHC.Data.Maybe
 
 -- NB: Be careful about RULES and type families (#5821).  So we should make sure
 -- to specify @Key TypeMapX@ (and not @DeBruijn Type@, the reduced form)
@@ -291,12 +294,12 @@ fdT k m = foldTM k (tm_var m)
         . foldMaybe k (tm_coerce m)
 
 filterT :: (a -> Bool) -> TypeMapX a -> TypeMapX a
-filterT f (TM { tm_var  = tvar, tm_app = tapp, tm_tyconapp = ttyconapp
+filterT f (TM { tm_var  = tvar, tm_app = tapp, tm_tycon = ttycon
               , tm_funty = tfunty, tm_forall = tforall, tm_tylit = tlit
               , tm_coerce = tcoerce })
   = TM { tm_var    = filterTM f tvar
        , tm_app    = mapTM (filterTM f) tapp
-       , tm_tyconapp = mapDNameEnv (filterTM f) ttyconapp
+       , tm_tycon  = filterTM f ttycon
        , tm_funty  = mapTM (mapTM (filterTM f)) tfunty
        , tm_forall = mapTM (filterTM f) tforall
        , tm_tylit  = filterTM f tlit

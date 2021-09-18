@@ -1595,6 +1595,7 @@ tc_eq_type :: Bool          -- ^ True <=> do not expand type synonyms
            -> Type -> Type
            -> Bool
 -- Flags False, False is the usual setting for tc_eq_type
+-- See Note [Computing equality on types] in Type
 tc_eq_type keep_syns vis_only orig_ty1 orig_ty2
   = go orig_env orig_ty1 orig_ty2
   where

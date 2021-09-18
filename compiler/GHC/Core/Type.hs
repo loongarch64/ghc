@@ -2540,6 +2540,17 @@ ordering leads to nondeterminism. We hit the same problem in the TyVarTy case,
 comparing type variables is nondeterministic, note the call to nonDetCmpVar in
 nonDetCmpTypeX.
 See Note [Unique Determinism] for more details.
+
+Note [Computing equality on types]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+There are several places within GHC that depend on the precise choice of
+definitional equality used. If we change that definition, all these places
+must be updated. This Note merely serves as a place for all these places
+to refer to, so searching for references to this Note will find every place
+that needs to be updated.
+
+See also Note [Non-trivial definitional equality] in GHC.Core.TyCo.Rep.
+
 -}
 
 nonDetCmpType :: Type -> Type -> Ordering
@@ -2569,6 +2580,7 @@ data TypeOrdering = TLT  -- ^ @t1 < t2@
 
 nonDetCmpTypeX :: RnEnv2 -> Type -> Type -> Ordering  -- Main workhorse
     -- See Note [Non-trivial definitional equality] in GHC.Core.TyCo.Rep
+    -- See Note [Computing equality on types]
 nonDetCmpTypeX env orig_t1 orig_t2 =
     case go env orig_t1 orig_t2 of
       -- If there are casts then we also need to do a comparison of the kinds of
