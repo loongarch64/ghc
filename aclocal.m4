@@ -211,6 +211,9 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
         alpha)
             test -z "[$]2" || eval "[$]2=ArchAlpha"
             ;;
+        loongarch64)
+            test -z "[$]2" || eval "[$]2=ArchLoongarch64"
+            ;;
         mips|mipseb)
             test -z "[$]2" || eval "[$]2=ArchMipseb"
             ;;
